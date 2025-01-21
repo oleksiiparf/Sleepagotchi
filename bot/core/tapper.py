@@ -370,6 +370,8 @@ class BaseBot:
 
         heroes = user_data.get("player", {}).get("heroes", [])
         resources = user_data.get("player", {}).get("resources", {})
+        
+        # Получаем доступные карточки героев
         hero_cards = {
             card["heroType"]: card["amount"] 
             for card in resources.get("heroCard", [])
@@ -383,20 +385,58 @@ class BaseBot:
         if hero_cards:
             logger.info(f"{self.session_name} | 🎴 {len(hero_cards)} types of cards")
 
-        heroes.sort(key=lambda x: (-x.get("rarity", 0), -x.get("power", 0)))
+        # Группируем героев по классам и редкости
+        heroes_by_class_and_rarity = {}
+        for hero in heroes:
+            hero_class = hero.get("class")
+            hero_type = hero.get("heroType")
+            hero_rarity = self._get_hero_rarity(hero_type)
+            
+            key = f"{hero_class}_{hero_rarity}"
+            if key not in heroes_by_class_and_rarity:
+                heroes_by_class_and_rarity[key] = []
+            heroes_by_class_and_rarity[key].append(hero)
+
+        # Определяем лучших героев в каждом классе по редкости
+        best_heroes = {}
+        for key, class_heroes in heroes_by_class_and_rarity.items():
+            class_heroes.sort(key=lambda x: (x.get("stars", 0), x.get("level", 0), x.get("power", 0)), reverse=True)
+            best_heroes[key] = class_heroes[0]
+
         upgraded_heroes = []
         not_enough_resources_count = 0
 
+        # Повышение звезд героям
         for hero in heroes:
             hero_type = hero.get("heroType")
             hero_name = hero.get("name")
+            hero_class = hero.get("class")
+            hero_rarity = self._get_hero_rarity(hero_type)
             
+            # Пропускаем epic и legendary героев
+            if hero_rarity in ["epic", "legendary"]:
+                continue
+                
+            # Особый случай для Bonk
+            if hero_rarity == "special":
+                current_level = hero.get("level", 0)
+                if current_level >= 50:  # Ограничиваем прокачку Bonk до 50 уровня
+                    continue
+                    
+            # Проверяем, является ли герой лучшим в своем классе и редкости
+            key = f"{hero_class}_{hero_rarity}"
+            if hero != best_heroes.get(key):
+                continue
+                
+            # Повышаем звезды если есть карточки
+            current_stars = hero.get("stars", 0)
             if hero_type in hero_cards and hero_cards[hero_type] >= hero.get("costStar", 0):
                 cards_needed = hero.get("costStar", 0)
                 if cards_needed > 0:
                     result = await self.star_up_hero(hero_type)
                     if result:
                         upgraded_heroes.append(f"⭐ {hero_name}")
+                        # Обновляем данные после повышения звезд
                         user_data = await self.get_user_data()
                         if not user_data:
                             return
@@ -407,7 +447,30 @@ class BaseBot:
                             for card in user_data.get("player", {}).get("resources", {}).get("heroCard", [])
                             if card["amount"] > 0
                         }
+
+        # Прокачка уровней
+        for hero in heroes:
+            hero_type = hero.get("heroType")
+            hero_name = hero.get("name")
+            hero_class = hero.get("class")
+            hero_rarity = self._get_hero_rarity(hero_type)
+            current_level = hero.get("level", 0)
             
+            # Пропускаем epic и legendary героев
+            if hero_rarity in ["epic", "legendary"]:
+                continue
+                
+            # Особый случай для Bonk
+            if hero_rarity == "special":
+                if current_level >= 50:  # Ограничиваем прокачку Bonk до 50 уровня
+                    continue
+                    
+            # Проверяем, является ли герой лучшим в своем классе и редкости
+            key = f"{hero_class}_{hero_rarity}"
+            if hero != best_heroes.get(key):
+                continue
+                
+            # Прокачиваем уровень если есть ресурсы
             cost_gold = hero.get("costLevelGold", 0)
             cost_green = hero.get("costLevelGreen", 0)
             
@@ -848,6 +911,7 @@ class BaseBot:
         if not hero_type:
             return None
             
+        # Определяем редкость по суффиксу
         if hero_type.endswith("Legendary"):
             return "legendary"
         elif hero_type.endswith("Epic"):
@@ -855,11 +919,19 @@ class BaseBot:
         elif hero_type.endswith("Rare"):
             return "rare"
             
+        # Особый случай для Bonk
+        if hero_type == "bonk":
+            return "special"
+            
+        # Для элементалей
         if "Element" in hero_type:
-            if hero_type.endswith(("2", "3")):
+            if hero_type.endswith("3"):
+                return "legendary"
+            elif hero_type.endswith("2"):
                 return "epic"
             return "rare"
             
+        # По умолчанию считаем rare
         return "rare"
 
 
