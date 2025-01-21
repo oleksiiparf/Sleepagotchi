@@ -313,11 +313,39 @@ class BaseBot:
         if not shop_data:
             return
 
-        for slot in shop_data.get("shop", []):
-            if slot.get("slotType") == "free":
-                logger.info(f"{self.session_name} | ✨ Free items")
-                await self.buy_shop("free")
-                break
+        free_slots = [slot for slot in shop_data.get("shop", []) if slot.get("slotType") == "free"]
+        if not free_slots:
+            logger.info(f"{self.session_name} | ❌ No free items in shop")
+            return
+
+        for slot in free_slots:
+            try:
+                slot_content = slot.get("content", [])
+                content_info = []
+                for item in slot_content:
+                    resource_type = item.get("resourceType", "Unknown")
+                    amount = item.get("amount", 0)
+                    content_info.append(f"{amount} {resource_type}")
+                
+                result = await self.buy_shop("free")
+                if result:
+                    if "rewards" in result:
+                        rewards = []
+                        for reward in result["rewards"]:
+                            reward_type = reward.get("type", "Unknown")
+                            amount = reward.get("amount", 0)
+                            rewards.append(f"{amount} {reward_type}")
+                        if rewards:
+                            logger.info(f"{self.session_name} | ✨ Free items: {' | '.join(rewards)}")
+                    elif result.get("status") == "ok" and content_info:
+                        logger.info(f"{self.session_name} | ✨ Free items: {' | '.join(content_info)}")
+                    else:
+                        logger.info(f"{self.session_name} | ✨ Free items collected")
+                else:
+                    logger.info(f"{self.session_name} | ❌ Failed to collect free items")
+            except Exception as e:
+                logger.error(f"{self.session_name} | Error collecting free items: {str(e)}")
+                continue
 
     async def _use_free_gacha(self) -> None:
         user_data = await self.get_user_data()
@@ -371,7 +399,6 @@ class BaseBot:
         heroes = user_data.get("player", {}).get("heroes", [])
         resources = user_data.get("player", {}).get("resources", {})
         
-        # Получаем доступные карточки героев
         hero_cards = {
             card["heroType"]: card["amount"] 
             for card in resources.get("heroCard", [])
@@ -385,7 +412,6 @@ class BaseBot:
         if hero_cards:
             logger.info(f"{self.session_name} | 🎴 {len(hero_cards)} types of cards")
 
-        # Группируем героев по классам и редкости
         heroes_by_class_and_rarity = {}
         for hero in heroes:
             hero_class = hero.get("class")
@@ -397,7 +423,6 @@ class BaseBot:
                 heroes_by_class_and_rarity[key] = []
             heroes_by_class_and_rarity[key].append(hero)
 
-        # Определяем лучших героев в каждом классе по редкости
         best_heroes = {}
         for key, class_heroes in heroes_by_class_and_rarity.items():
             class_heroes.sort(key=lambda x: (x.get("stars", 0), x.get("level", 0), x.get("power", 0)), reverse=True)
@@ -406,29 +431,24 @@ class BaseBot:
         upgraded_heroes = []
         not_enough_resources_count = 0
 
-        # Повышение звезд героям
         for hero in heroes:
             hero_type = hero.get("heroType")
             hero_name = hero.get("name")
             hero_class = hero.get("class")
             hero_rarity = self._get_hero_rarity(hero_type)
             
-            # Пропускаем epic и legendary героев
             if hero_rarity in ["epic", "legendary"]:
                 continue
                 
-            # Особый случай для Bonk
             if hero_rarity == "special":
                 current_level = hero.get("level", 0)
-                if current_level >= 50:  # Ограничиваем прокачку Bonk до 50 уровня
+                if current_level >= 50:
                     continue
                     
-            # Проверяем, является ли герой лучшим в своем классе и редкости
             key = f"{hero_class}_{hero_rarity}"
             if hero != best_heroes.get(key):
                 continue
                 
-            # Повышаем звезды если есть карточки
             current_stars = hero.get("stars", 0)
             if hero_type in hero_cards and hero_cards[hero_type] >= hero.get("costStar", 0):
                 cards_needed = hero.get("costStar", 0)
@@ -436,19 +456,24 @@ class BaseBot:
                     result = await self.star_up_hero(hero_type)
                     if result:
                         upgraded_heroes.append(f"⭐ {hero_name}")
-                        # Обновляем данные после повышения звезд
                         user_data = await self.get_user_data()
                         if not user_data:
                             return
-                        gold = user_data.get("player", {}).get("resources", {}).get("gold", {}).get("amount", 0)
-                        green_stones = user_data.get("player", {}).get("resources", {}).get("greenStones", {}).get("amount", 0)
                         hero_cards = {
                             card["heroType"]: card["amount"] 
                             for card in user_data.get("player", {}).get("resources", {}).get("heroCard", [])
                             if card["amount"] > 0
                         }
 
-        # Прокачка уровней
+        user_data = await self.get_user_data()
+        if not user_data:
+            return
+            
+        heroes = user_data.get("player", {}).get("heroes", [])
+        resources = user_data.get("player", {}).get("resources", {})
+        gold = resources.get("gold", {}).get("amount", 0)
+        green_stones = resources.get("greenStones", {}).get("amount", 0)
+
         for hero in heroes:
             hero_type = hero.get("heroType")
             hero_name = hero.get("name")
@@ -456,21 +481,17 @@ class BaseBot:
             hero_rarity = self._get_hero_rarity(hero_type)
             current_level = hero.get("level", 0)
             
-            # Пропускаем epic и legendary героев
             if hero_rarity in ["epic", "legendary"]:
                 continue
                 
-            # Особый случай для Bonk
             if hero_rarity == "special":
-                if current_level >= 50:  # Ограничиваем прокачку Bonk до 50 уровня
+                if current_level >= 50:
                     continue
                     
-            # Проверяем, является ли герой лучшим в своем классе и редкости
             key = f"{hero_class}_{hero_rarity}"
             if hero != best_heroes.get(key):
                 continue
                 
-            # Прокачиваем уровень если есть ресурсы
             cost_gold = hero.get("costLevelGold", 0)
             cost_green = hero.get("costLevelGreen", 0)
             
@@ -479,8 +500,13 @@ class BaseBot:
                     result = await self.level_up_hero(hero_type)
                     if result:
                         upgraded_heroes.append(f"📈 {hero_name}")
-                        gold -= cost_gold
-                        green_stones -= cost_green
+                        # Обновляем балансы после каждого повышения уровня
+                        user_data = await self.get_user_data()
+                        if not user_data:
+                            return
+                        resources = user_data.get("player", {}).get("resources", {})
+                        gold = resources.get("gold", {}).get("amount", 0)
+                        green_stones = resources.get("greenStones", {}).get("amount", 0)
                 else:
                     not_enough_resources_count += 1
 
@@ -519,132 +545,12 @@ class BaseBot:
             
         logger.info(f"{self.session_name} | 👥 Available heroes: {len(available_heroes)}")
 
-        available_heroes = [
-            {
-                "name": hero.get("name"),
-                "type": hero.get("heroType"),
-                "class": hero.get("class"),
-                "level": hero.get("level", 1),
-                "stars": hero.get("stars", 1),
-                "rarity": self._get_hero_rarity(hero.get("heroType"))
-            }
-            for hero in available_heroes
-        ]
-
-        active_challenges = set()
-        constellations = await self.get_constellations(start_index=0, amount=10)
+        constellations = await self.get_constellations()
         if not constellations:
             return
-
+            
         for constellation in constellations.get("constellations", []):
-            for challenge in constellation.get("challenges", []):
-                if challenge.get("status") == "inProgress":
-                    active_challenges.add(challenge.get("challengeType"))
-
-        used_heroes = set()
-        current_time = int(time() * 1000)
-
-        for constellation in constellations.get("constellations", []):
-            for challenge in constellation.get("challenges", []):
-                challenge_type = challenge.get("challengeType")
-                
-                if challenge_type in active_challenges:
-                    continue
-                    
-                total_value = challenge.get("value", 0)
-                received_value = challenge.get("received", 0)
-                remaining_value = total_value - received_value
-                
-                if remaining_value <= 0:
-                    continue
-                    
-                unlock_at = challenge.get("unlockAt", 0)
-                if unlock_at > current_time:
-                    continue
-                    
-                slots = challenge.get("orderedSlots", [])
-                if not slots or any(slot.get("occupiedBy") != "empty" or slot.get("unlockAt", 0) > current_time for slot in slots):
-                    continue
-
-                challenge_name = challenge.get("name", "Unknown")
-                challenge_time = challenge.get("time", 0)
-                challenge_reward = remaining_value
-                challenge_resource = challenge.get("resourceType", "unknown")
-
-                required_heroes_count = len(slots)
-                if len(available_heroes) - len(used_heroes) < required_heroes_count:
-                    continue
-
-                min_level = challenge.get("minLevel", 1)
-                min_stars = challenge.get("minStars", 1)
-                
-                suitable_heroes = []
-                used_heroes_for_challenge = set()
-
-                for slot_index, slot in enumerate(slots):
-                    required_class = slot.get("heroClass")
-                    required_rarity = slot.get("heroRarity", "rare").lower()
-                    hero_found = False
-                    
-                    for hero in available_heroes:
-                        hero_type = hero.get("type")
-                        if (hero_type not in used_heroes and 
-                            hero_type not in used_heroes_for_challenge and
-                            hero.get("class") == required_class and 
-                            hero.get("level", 1) >= min_level and
-                            hero.get("stars", 1) >= min_stars and
-                            hero.get("rarity") == required_rarity):
-                            
-                            suitable_heroes.append(hero)
-                            used_heroes_for_challenge.add(hero_type)
-                            hero_found = True
-                            break
-                    
-                    if not hero_found:
-                        break
-
-                if len(suitable_heroes) < required_heroes_count:
-                    continue
-
-                challenge_heroes = []
-                for i, hero in enumerate(suitable_heroes):
-                    hero_type = hero.get("type")
-                    if not hero_type:
-                        logger.error(
-                            f"{self.session_name} | Hero type not found: {hero.get('name')}"
-                        )
-                        continue
-
-                    challenge_heroes.append({
-                        "slotId": i,
-                        "heroType": hero_type
-                    })
-
-                if len(challenge_heroes) != required_heroes_count:
-                    logger.error(
-                        f"{self.session_name} | Incorrect number of heroes for challenge {challenge_name}: "
-                        f"needed {required_heroes_count}, prepared {len(challenge_heroes)}"
-                    )
-                    continue
-
-                result = await self.send_to_challenge(
-                    challenge_type=challenge_type,
-                    heroes=challenge_heroes
-                )
-                
-                if result:
-                    logger.info(f"{self.session_name} | ✅ {len(challenge_heroes)}👥 → {challenge_name} | ⏱️ {challenge_time}m | 💎 {challenge_reward} {challenge_resource} ({received_value}/{total_value})")
-                    active_challenges.add(challenge_type)
-                    used_heroes.update(used_heroes_for_challenge)
-                else:
-                    logger.error(
-                        f"{self.session_name} | Failed to send heroes to challenge {challenge_name}. "
-                        f"Challenge type: {challenge_type}"
-                    )
-                
-                if len(available_heroes) == len(used_heroes):
-                    logger.info(f"{self.session_name} | ✅ All heroes are busy")
-                    return
+            await self._process_constellation(constellation)
 
     async def process_bot_logic(self) -> None:
         current_time = datetime.now().strftime("%H:%M:%S")
@@ -721,68 +627,54 @@ class BaseBot:
             logger.error(f"{self.session_name} | Error getting constellations: {str(e)}")
             return None
 
-    async def send_to_challenge(
-        self, 
+    def _format_heroes_for_challenge(self, heroes: list) -> list:
+        formatted_heroes = []
+        for i, hero in enumerate(heroes):
+            hero_type = hero.get("heroType")
+            if not hero_type:
+                logger.error(f"{self.session_name} | ❌ Hero type not found: {hero.get('name')}")
+                continue
+                
+            formatted_heroes.append({
+                "slotId": str(i),
+                "heroType": hero_type
+            })
+            
+        return formatted_heroes
+
+    async def _send_heroes_to_challenge(
+        self,
         challenge_type: str,
-        heroes: List[Dict[str, str]]
-    ) -> Optional[Dict]:
+        heroes: list
+    ) -> Optional[dict]:
         try:
-            if not isinstance(heroes, list):
-                logger.error(
-                    f"{self.session_name} | Invalid hero data type: {type(heroes)}"
-                )
+            formatted_heroes = self._format_heroes_for_challenge(heroes)
+            if not formatted_heroes:
+                logger.error(f"{self.session_name} | ❌ Failed to format heroes for sending")
                 return None
                 
-            hero_types = set()
-            for i, hero in enumerate(heroes):
-                if not isinstance(hero, dict):
-                    logger.error(
-                        f"{self.session_name} | Invalid format for hero {i}: {hero}"
-                    )
-                    return None
-                    
-                slot_id = hero.get("slotId")
-                hero_type = hero.get("heroType")
-                
-                if not isinstance(slot_id, int):
-                    logger.error(
-                        f"{self.session_name} | Invalid type for slotId for hero {i}: {type(slot_id)}"
-                    )
-                    return None
-                    
-                if not isinstance(hero_type, str):
-                    logger.error(
-                        f"{self.session_name} | Invalid type for heroType for hero {i}: {type(hero_type)}"
-                    )
-                    return None
-                    
-                if hero_type in hero_types:
-                    logger.error(
-                        f"{self.session_name} | Duplicate hero {hero_type}"
-                    )
-                    return None
-                hero_types.add(hero_type)
-                    
-                if slot_id != i:
-                    logger.error(
-                        f"{self.session_name} | Invalid slotId order: {slot_id} should be {i}"
-                    )
-                    return None
-
+            hero_names = [f"{hero.get('name')} ({hero.get('class')})" for hero in heroes]
+            logger.info(f"{self.session_name} | 📤 Sending to challenge {challenge_type}")
+            logger.info(f"{self.session_name} | 👥 Heroes: {', '.join(hero_names)}")
+            
             response = await self.make_request(
                 method="POST",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/sendToChallenge",
+                url="https://tgapi.sleepagotchi.com/v1/tg/sendToChallenge",
                 params=self._init_data,
                 json={
-                    "challengeType": challenge_type,
-                    "heroes": heroes
+                    "type": challenge_type,
+                    "heroes": formatted_heroes
                 }
             )
             
+            if response:
+                logger.info(f"{self.session_name} | ✅ Successfully sent to challenge {challenge_type}")
+            else:
+                logger.error(f"{self.session_name} | ❌ Error sending to challenge {challenge_type}")
+                
             return response
-            
         except Exception as e:
-            logger.error(f"{self.session_name} | Error sending to challenge: {str(e)}")
+            logger.error(f"{self.session_name} | Error sending heroes to challenge {challenge_type}: {str(e)}")
             return None
 
     async def claim_challenges_rewards(self) -> Optional[Dict]:
@@ -911,7 +803,6 @@ class BaseBot:
         if not hero_type:
             return None
             
-        # Определяем редкость по суффиксу
         if hero_type.endswith("Legendary"):
             return "legendary"
         elif hero_type.endswith("Epic"):
@@ -919,11 +810,9 @@ class BaseBot:
         elif hero_type.endswith("Rare"):
             return "rare"
             
-        # Особый случай для Bonk
         if hero_type == "bonk":
             return "special"
             
-        # Для элементалей
         if "Element" in hero_type:
             if hero_type.endswith("3"):
                 return "legendary"
@@ -931,8 +820,143 @@ class BaseBot:
                 return "epic"
             return "rare"
             
-        # По умолчанию считаем rare
         return "rare"
+
+    def _check_slot_requirements(
+        self,
+        hero: dict,
+        slot: dict,
+        min_level: int,
+        min_stars: int,
+        required_skill: str,
+        required_power: int
+    ) -> bool:
+        hero_class = hero.get("class")
+        required_class = slot.get("heroClass")
+        
+        if hero_class != "universal" and hero_class != required_class:
+            return False
+
+        hero_level = hero.get("level", 0)
+        if hero_level < min_level:
+            return False
+
+        hero_stars = hero.get("stars", 0)
+        if hero_stars < min_stars:
+            return False
+
+        hero_power = hero.get("power", 0)
+        if hero_power < required_power:
+            return False
+
+        if required_skill:
+            hero_skills = hero.get("skills", [])
+            if not hero_skills or required_skill not in hero_skills:
+                return False
+
+        return True
+
+    def _find_suitable_heroes(
+        self,
+        heroes: list,
+        slot_requirements: list,
+        min_level: int,
+        min_stars: int,
+        required_skill: str,
+        required_power: int
+    ) -> list:
+        suitable_heroes = []
+        used_heroes = set()
+        available_heroes = [h for h in heroes if not h.get("busy")]
+        
+        for slot_index, slot in enumerate(slot_requirements):
+            if slot.get("optional", False) and not slot.get("unlocked", True):
+                continue
+
+            required_class = slot.get("heroClass")
+            if not required_class:
+                continue
+            
+            found_hero = None
+            
+            for hero in available_heroes:
+                if hero.get("id") not in used_heroes:
+                    if self._check_slot_requirements(
+                        hero, 
+                        slot, 
+                        min_level, 
+                        min_stars, 
+                        required_skill, 
+                        required_power
+                    ):
+                        found_hero = hero
+                        break
+            
+            if found_hero:
+                suitable_heroes.append(found_hero)
+                used_heroes.add(found_hero.get("id"))
+            else:
+                return []
+
+        return suitable_heroes
+
+    async def _process_constellation(self, constellation: dict) -> None:
+        try:
+            constellation_name = constellation.get("name", "Unknown constellation")
+            challenges = constellation.get("challenges", [])
+            
+            for challenge in challenges:
+                try:
+                    challenge_name = challenge.get("name", "Unknown challenge")
+                    challenge_type = challenge.get("challengeType")
+                    
+                    if not challenge_type:
+                        logger.error(f"{self.session_name} | ❌ Challenge type not specified for {challenge_name}")
+                        continue
+                    
+                    min_level = challenge.get("minLevel", 1)
+                    min_stars = challenge.get("minStars", 1)
+                    required_skill = challenge.get("heroSkill")
+                    required_power = challenge.get("power", 0)
+                    
+                    slots = challenge.get("orderedSlots", [])
+                    
+                    user_data = await self.get_user_data()
+                    if not user_data:
+                        continue
+                        
+                    heroes = user_data.get("player", {}).get("heroes", [])
+                    
+                    suitable_heroes = self._find_suitable_heroes(
+                        heroes,
+                        slots,
+                        min_level,
+                        min_stars,
+                        required_skill,
+                        required_power
+                    )
+                    
+                    if suitable_heroes:
+                        await self._send_heroes_to_challenge(challenge_type, suitable_heroes)
+                    else:
+                        pass
+                except Exception as e:
+                    logger.error(f"{self.session_name} | Error processing challenge {challenge_name}: {str(e)}")
+                    continue
+        except Exception as e:
+            logger.error(f"{self.session_name} | Error processing constellation {constellation_name}: {str(e)}")
+            return
+
+    async def _process_all_constellations(self) -> None:
+        try:
+            constellations = await self.get_constellations()
+            if not constellations:
+                return
+                
+            for constellation in constellations:
+                await self._process_constellation(constellation)
+        except Exception as e:
+            logger.error(f"{self.session_name} | Error processing constellations: {str(e)}")
 
 
 async def run_tapper(tg_client: UniversalTelegramClient):
