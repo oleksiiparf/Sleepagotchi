@@ -166,7 +166,16 @@ class BaseBot:
                     error_name = error_json.get('name', 'Unknown')
                     error_message = error_json.get('message', 'No message')
                     
-                    if "error_level_up_no_resources" in error_message or "error_star_up_no_resources" in error_message:
+                    silent_errors = [
+                        "error_level_up_unavalable",
+                        "error_level_up_no_resources",
+                        "error_level_up_max_level",
+                        "error_star_up_no_resources"
+                    ]
+                    
+                    is_silent_error = any(err in error_message for err in silent_errors)
+                    
+                    if is_silent_error:
                         raise Exception(error_message)
                         
                     if response.status == 401:
@@ -187,6 +196,8 @@ class BaseBot:
                     else:
                         logger.error(f"{self.session_name} | Error {response.status}: {error_name} - {error_message}")
                     
+                    raise Exception(error_message)
+                    
             except asyncio.TimeoutError:
                 logger.error(f"{self.session_name} | Timeout on attempt {attempt + 1}/{settings.REQUEST_RETRIES}")
                 if attempt < settings.REQUEST_RETRIES - 1:
@@ -200,7 +211,8 @@ class BaseBot:
                     continue
                 return None
             except Exception as e:
-                logger.error(f"{self.session_name} | Unknown error on attempt {attempt + 1}/{settings.REQUEST_RETRIES}: {str(e)}")
+                if not any(err in str(e) for err in silent_errors):
+                    logger.error(f"{self.session_name} | Unknown error on attempt {attempt + 1}/{settings.REQUEST_RETRIES}: {str(e)}")
                 return None
 
     async def run(self) -> None:
@@ -389,7 +401,7 @@ class BaseBot:
                         reward_type = reward.get("type", "Unknown")
                         logger.info(f"{self.session_name} | 🎁 {reward_name} ({reward_type})")
                 await asyncio.sleep(1)
-
+    
     async def _level_up_best_heroes(self) -> None:
         user_data = await self.get_user_data()
         if not user_data:
@@ -430,6 +442,7 @@ class BaseBot:
         upgraded_heroes = []
         not_enough_resources_count = 0
         unavailable_upgrades_count = 0
+        cooldown_heroes = []
 
         for hero in heroes:
             hero_type = hero.get("heroType")
@@ -508,15 +521,18 @@ class BaseBot:
                         green_stones = resources.get("greenStones", {}).get("amount", 0)
                     elif result is None:
                         unavailable_upgrades_count += 1
+                        cooldown_heroes.append(hero_name)
                 else:
                     not_enough_resources_count += 1
 
         if upgraded_heroes:
             logger.info(f"{self.session_name} | ✨ {' | '.join(upgraded_heroes)}")
         if not_enough_resources_count > 0:
-            logger.info(f"{self.session_name} | ❌ {not_enough_resources_count} героев ожидают ресурсов")
+            pass
         if unavailable_upgrades_count > 0:
-            logger.info(f"{self.session_name} | ⏳ {unavailable_upgrades_count} героев не могут быть улучшены сейчас")
+            pass
+            if cooldown_heroes:
+                pass
 
     async def star_up_hero(self, hero_type: str) -> Optional[Dict]:
         try:
@@ -587,7 +603,6 @@ class BaseBot:
         await delay()
         await self._send_heroes_to_challenges()
         
-        # Получаем информацию о текущих испытаниях
         constellations = await self.get_constellations()
         current_time_ms = int(time() * 1000)
         max_challenge_time = 0
@@ -595,7 +610,6 @@ class BaseBot:
         if constellations:
             for constellation in constellations.get("constellations", []):
                 for challenge in constellation.get("challenges", []):
-                    # Проверяем только активные испытания
                     if challenge.get("received", 0) < challenge.get("value", 0):
                         slots = challenge.get("orderedSlots", [])
                         has_busy_slots = any(
@@ -603,17 +617,11 @@ class BaseBot:
                             for slot in slots
                         )
                         if has_busy_slots:
-                            challenge_time = challenge.get("time", 0)  # время в секундах
+                            challenge_time = challenge.get("time", 0)
                             if challenge_time > max_challenge_time:
                                 max_challenge_time = challenge_time
         
-        # Рассчитываем время сна
-        sleep_time = max_challenge_time
-        min_sleep_time = settings.SLEEP_TIME[0]
-        
-        # Если нет активных испытаний или они короткие, используем стандартное время сна
-        if sleep_time < min_sleep_time:
-            sleep_time = uniform(settings.SLEEP_TIME[0], settings.SLEEP_TIME[1])
+        sleep_time = max_challenge_time if max_challenge_time > 0 else uniform(settings.SLEEP_TIME[0], settings.SLEEP_TIME[1])
         
         next_time = datetime.fromtimestamp(time() + sleep_time).strftime("%H:%M:%S")
         logger.info(f"{self.session_name} | 💤 → {next_time} ({self._format_time(int(sleep_time * 1000))})")
@@ -688,19 +696,16 @@ class BaseBot:
                     logger.error(f"{self.session_name} | ❌ Hero type not found: {hero.get('name')}")
                     continue
                     
-                # Находим подходящий слот для героя
                 slot_index = None
                 hero_class = hero.get("class")
                 
                 if slots:
                     for j, slot in enumerate(slots):
-                        # Проверяем, что слот разблокирован, не занят и время разблокировки прошло
                         if (slot.get("unlocked", True) and 
                             slot.get("occupiedBy", "empty") == "empty" and
                             slot.get("unlockAt", 0) <= current_time and
                             (slot.get("heroClass") == hero_class or hero_class == "universal")):
                             slot_index = j
-                            # Помечаем слот как занятый
                             slots[j]["occupiedBy"] = hero_type
                             break
                 else:
@@ -786,12 +791,15 @@ class BaseBot:
             )
             return response
         except Exception as e:
-            if "error_level_up_unavalable" in str(e):
-                # Пропускаем ошибку, так как это нормальное состояние
-                # когда герой не может быть улучшен
+            error_str = str(e)
+            if "error_level_up_unavalable" in error_str:
                 return None
-            logger.error(f"{self.session_name} | Error leveling up hero: {str(e)}")
-            return None
+            elif "error_level_up_no_resources" in error_str:
+                return None
+            elif "error_level_up_max_level" in error_str:
+                return None
+            else:
+                return None
 
     async def get_shop(self) -> Optional[Dict]:
         try:
@@ -902,14 +910,12 @@ class BaseBot:
         used_heroes = set()
         current_time = int(time() * 1000)
         
-        # Получаем список уже занятых героев из всех слотов
         busy_heroes = set()
         for slot in slot_requirements:
             occupied_by = slot.get("occupiedBy")
             if occupied_by and occupied_by != "empty":
                 busy_heroes.add(occupied_by)
                 
-        # Фильтруем доступных героев
         available_heroes = [
             h for h in heroes 
             if (not h.get("busy") and 
@@ -918,7 +924,6 @@ class BaseBot:
                 h.get("heroType") not in used_heroes)
         ]
         
-        # Получаем только разблокированные и доступные слоты
         unlocked_slots = [
             slot for slot in slot_requirements 
             if (slot.get("unlocked", True) and 
@@ -929,13 +934,11 @@ class BaseBot:
         if not unlocked_slots:
             return []
             
-        # Для каждого слота ищем подходящего героя
         for slot in unlocked_slots:
             required_class = slot.get("heroClass")
             if not required_class:
                 continue
                 
-            # Ищем героя для текущего слота
             slot_hero = None
             for hero in available_heroes:
                 if hero.get("heroType") in used_heroes:
@@ -946,11 +949,9 @@ class BaseBot:
                 hero_level = hero.get("level", 0)
                 hero_stars = hero.get("stars", 0)
                 
-                # Проверяем соответствие класса
                 if hero_class != "universal" and hero_class != required_class:
                     continue
                     
-                # Проверяем требования героя
                 if hero_level < min_level:
                     continue
                     
@@ -960,14 +961,12 @@ class BaseBot:
                 if hero_power < required_power:
                     continue
                     
-                # Герой подходит для слота
                 slot_hero = hero
                 break
                     
             if slot_hero:
                 suitable_heroes.append(slot_hero)
                 used_heroes.add(slot_hero.get("heroType"))
-                # Удаляем героя из списка доступных
                 available_heroes.remove(slot_hero)
                 
         return suitable_heroes
@@ -1064,7 +1063,6 @@ class BaseBot:
                 await self._process_constellation(constellation)
         except Exception as e:
             logger.error(f"{self.session_name} | Error processing constellations: {str(e)}")
-
 
 async def run_tapper(tg_client: UniversalTelegramClient):
     bot = BaseBot(tg_client=tg_client)
