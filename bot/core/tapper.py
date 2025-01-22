@@ -429,6 +429,7 @@ class BaseBot:
 
         upgraded_heroes = []
         not_enough_resources_count = 0
+        unavailable_upgrades_count = 0
 
         for hero in heroes:
             hero_type = hero.get("heroType")
@@ -505,13 +506,17 @@ class BaseBot:
                         resources = user_data.get("player", {}).get("resources", {})
                         gold = resources.get("gold", {}).get("amount", 0)
                         green_stones = resources.get("greenStones", {}).get("amount", 0)
+                    elif result is None:
+                        unavailable_upgrades_count += 1
                 else:
                     not_enough_resources_count += 1
 
         if upgraded_heroes:
             logger.info(f"{self.session_name} | ✨ {' | '.join(upgraded_heroes)}")
         if not_enough_resources_count > 0:
-            logger.info(f"{self.session_name} | ❌ {not_enough_resources_count} heroes are waiting for resources")
+            logger.info(f"{self.session_name} | ❌ {not_enough_resources_count} героев ожидают ресурсов")
+        if unavailable_upgrades_count > 0:
+            logger.info(f"{self.session_name} | ⏳ {unavailable_upgrades_count} героев не могут быть улучшены сейчас")
 
     async def star_up_hero(self, hero_type: str) -> Optional[Dict]:
         try:
@@ -582,7 +587,34 @@ class BaseBot:
         await delay()
         await self._send_heroes_to_challenges()
         
-        sleep_time = uniform(settings.SLEEP_TIME[0], settings.SLEEP_TIME[1])
+        # Получаем информацию о текущих испытаниях
+        constellations = await self.get_constellations()
+        current_time_ms = int(time() * 1000)
+        max_challenge_time = 0
+        
+        if constellations:
+            for constellation in constellations.get("constellations", []):
+                for challenge in constellation.get("challenges", []):
+                    # Проверяем только активные испытания
+                    if challenge.get("received", 0) < challenge.get("value", 0):
+                        slots = challenge.get("orderedSlots", [])
+                        has_busy_slots = any(
+                            slot.get("occupiedBy", "empty") != "empty" 
+                            for slot in slots
+                        )
+                        if has_busy_slots:
+                            challenge_time = challenge.get("time", 0)  # время в секундах
+                            if challenge_time > max_challenge_time:
+                                max_challenge_time = challenge_time
+        
+        # Рассчитываем время сна
+        sleep_time = max_challenge_time
+        min_sleep_time = settings.SLEEP_TIME[0]
+        
+        # Если нет активных испытаний или они короткие, используем стандартное время сна
+        if sleep_time < min_sleep_time:
+            sleep_time = uniform(settings.SLEEP_TIME[0], settings.SLEEP_TIME[1])
+        
         next_time = datetime.fromtimestamp(time() + sleep_time).strftime("%H:%M:%S")
         logger.info(f"{self.session_name} | 💤 → {next_time} ({self._format_time(int(sleep_time * 1000))})")
         await asyncio.sleep(sleep_time)
@@ -754,6 +786,10 @@ class BaseBot:
             )
             return response
         except Exception as e:
+            if "error_level_up_unavalable" in str(e):
+                # Пропускаем ошибку, так как это нормальное состояние
+                # когда герой не может быть улучшен
+                return None
             logger.error(f"{self.session_name} | Error leveling up hero: {str(e)}")
             return None
 
