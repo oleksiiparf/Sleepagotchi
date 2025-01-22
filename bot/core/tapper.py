@@ -298,24 +298,23 @@ class BaseBot:
             await self.claim_challenges_rewards()
 
     async def _collect_shop_rewards(self) -> None:
-        user_data = await self.get_user_data()
-        if not user_data:
-            return
-            
-        current_time = int(time() * 1000)
-        shop_next_claim = user_data.get("player", {}).get("meta", {}).get("shopNextClaimAt", 0)
-        
-        if shop_next_claim > current_time:
-            logger.info(f"{self.session_name} | ⏳ Shop → {self._format_next_time(shop_next_claim)}")
-            return
-            
         shop_data = await self.get_shop()
         if not shop_data:
             return
 
-        free_slots = [slot for slot in shop_data.get("shop", []) if slot.get("slotType") == "free"]
+        current_time = int(time() * 1000)
+        free_slots = [slot for slot in shop_data.get("shop", []) 
+                     if slot.get("slotType") == "free" and slot.get("nextClaimAt", current_time + 1) <= current_time]
+                     
         if not free_slots:
-            logger.info(f"{self.session_name} | ❌ No free items in shop")
+            next_claim = min((slot.get("nextClaimAt", 0) 
+                            for slot in shop_data.get("shop", []) 
+                            if slot.get("slotType") == "free"), 
+                           default=0)
+            if next_claim > 0:
+                logger.info(f"{self.session_name} | ⏳ Shop → {self._format_next_time(next_claim)}")
+            else:
+                logger.info(f"{self.session_name} | ❌ No available free items")
             return
 
         for slot in free_slots:
@@ -336,15 +335,15 @@ class BaseBot:
                             amount = reward.get("amount", 0)
                             rewards.append(f"{amount} {reward_type}")
                         if rewards:
-                            logger.info(f"{self.session_name} | ✨ Free items: {' | '.join(rewards)}")
+                            logger.info(f"{self.session_name} | ✨ Received: {' | '.join(rewards)}")
                     elif result.get("status") == "ok" and content_info:
-                        logger.info(f"{self.session_name} | ✨ Free items: {' | '.join(content_info)}")
+                        logger.info(f"{self.session_name} | ✨ Received: {' | '.join(content_info)}")
                     else:
-                        logger.info(f"{self.session_name} | ✨ Free items collected")
+                        logger.info(f"{self.session_name} | ✨ Received free items")
                 else:
-                    logger.info(f"{self.session_name} | ❌ Failed to collect free items")
+                    logger.error(f"{self.session_name} | ❌ Failed to receive free items")
             except Exception as e:
-                logger.error(f"{self.session_name} | Error collecting free items: {str(e)}")
+                logger.error(f"{self.session_name} | Error receiving free items: {str(e)}")
                 continue
 
     async def _use_free_gacha(self) -> None:
@@ -500,7 +499,6 @@ class BaseBot:
                     result = await self.level_up_hero(hero_type)
                     if result:
                         upgraded_heroes.append(f"📈 {hero_name}")
-                        # Обновляем балансы после каждого повышения уровня
                         user_data = await self.get_user_data()
                         if not user_data:
                             return
@@ -645,10 +643,43 @@ class BaseBot:
     async def _send_heroes_to_challenge(
         self,
         challenge_type: str,
-        heroes: list
+        heroes: list,
+        slots: list = None
     ) -> Optional[dict]:
         try:
-            formatted_heroes = self._format_heroes_for_challenge(heroes)
+            formatted_heroes = []
+            current_time = int(time() * 1000)
+            
+            for i, hero in enumerate(heroes):
+                hero_type = hero.get("heroType")
+                if not hero_type:
+                    logger.error(f"{self.session_name} | ❌ Hero type not found: {hero.get('name')}")
+                    continue
+                    
+                # Находим подходящий слот для героя
+                slot_index = None
+                hero_class = hero.get("class")
+                
+                if slots:
+                    for j, slot in enumerate(slots):
+                        # Проверяем, что слот разблокирован, не занят и время разблокировки прошло
+                        if (slot.get("unlocked", True) and 
+                            slot.get("occupiedBy", "empty") == "empty" and
+                            slot.get("unlockAt", 0) <= current_time and
+                            (slot.get("heroClass") == hero_class or hero_class == "universal")):
+                            slot_index = j
+                            # Помечаем слот как занятый
+                            slots[j]["occupiedBy"] = hero_type
+                            break
+                else:
+                    slot_index = i
+                    
+                if slot_index is not None:
+                    formatted_heroes.append({
+                        "slotId": slot_index,
+                        "heroType": hero_type
+                    })
+                
             if not formatted_heroes:
                 logger.error(f"{self.session_name} | ❌ Failed to format heroes for sending")
                 return None
@@ -662,7 +693,7 @@ class BaseBot:
                 url="https://tgapi.sleepagotchi.com/v1/tg/sendToChallenge",
                 params=self._init_data,
                 json={
-                    "type": challenge_type,
+                    "challengeType": challenge_type,
                     "heroes": formatted_heroes
                 }
             )
@@ -822,40 +853,6 @@ class BaseBot:
             
         return "rare"
 
-    def _check_slot_requirements(
-        self,
-        hero: dict,
-        slot: dict,
-        min_level: int,
-        min_stars: int,
-        required_skill: str,
-        required_power: int
-    ) -> bool:
-        hero_class = hero.get("class")
-        required_class = slot.get("heroClass")
-        
-        if hero_class != "universal" and hero_class != required_class:
-            return False
-
-        hero_level = hero.get("level", 0)
-        if hero_level < min_level:
-            return False
-
-        hero_stars = hero.get("stars", 0)
-        if hero_stars < min_stars:
-            return False
-
-        hero_power = hero.get("power", 0)
-        if hero_power < required_power:
-            return False
-
-        if required_skill:
-            hero_skills = hero.get("skills", [])
-            if not hero_skills or required_skill not in hero_skills:
-                return False
-
-        return True
-
     def _find_suitable_heroes(
         self,
         heroes: list,
@@ -867,37 +864,76 @@ class BaseBot:
     ) -> list:
         suitable_heroes = []
         used_heroes = set()
-        available_heroes = [h for h in heroes if not h.get("busy")]
+        current_time = int(time() * 1000)
         
-        for slot_index, slot in enumerate(slot_requirements):
-            if slot.get("optional", False) and not slot.get("unlocked", True):
-                continue
-
+        # Получаем список уже занятых героев из всех слотов
+        busy_heroes = set()
+        for slot in slot_requirements:
+            occupied_by = slot.get("occupiedBy")
+            if occupied_by and occupied_by != "empty":
+                busy_heroes.add(occupied_by)
+                
+        # Фильтруем доступных героев
+        available_heroes = [
+            h for h in heroes 
+            if (not h.get("busy") and 
+                h.get("heroType") not in busy_heroes and
+                h.get("unlockAt", 0) <= current_time and
+                h.get("heroType") not in used_heroes)
+        ]
+        
+        # Получаем только разблокированные и доступные слоты
+        unlocked_slots = [
+            slot for slot in slot_requirements 
+            if (slot.get("unlocked", True) and 
+                slot.get("occupiedBy", "empty") == "empty" and
+                slot.get("unlockAt", 0) <= current_time)
+        ]
+        
+        if not unlocked_slots:
+            return []
+            
+        # Для каждого слота ищем подходящего героя
+        for slot in unlocked_slots:
             required_class = slot.get("heroClass")
             if not required_class:
                 continue
-            
-            found_hero = None
-            
+                
+            # Ищем героя для текущего слота
+            slot_hero = None
             for hero in available_heroes:
-                if hero.get("id") not in used_heroes:
-                    if self._check_slot_requirements(
-                        hero, 
-                        slot, 
-                        min_level, 
-                        min_stars, 
-                        required_skill, 
-                        required_power
-                    ):
-                        found_hero = hero
-                        break
-            
-            if found_hero:
-                suitable_heroes.append(found_hero)
-                used_heroes.add(found_hero.get("id"))
-            else:
-                return []
-
+                if hero.get("heroType") in used_heroes:
+                    continue
+                    
+                hero_class = hero.get("class")
+                hero_power = hero.get("power", 0)
+                hero_level = hero.get("level", 0)
+                hero_stars = hero.get("stars", 0)
+                
+                # Проверяем соответствие класса
+                if hero_class != "universal" and hero_class != required_class:
+                    continue
+                    
+                # Проверяем требования героя
+                if hero_level < min_level:
+                    continue
+                    
+                if hero_stars < min_stars:
+                    continue
+                    
+                if hero_power < required_power:
+                    continue
+                    
+                # Герой подходит для слота
+                slot_hero = hero
+                break
+                    
+            if slot_hero:
+                suitable_heroes.append(slot_hero)
+                used_heroes.add(slot_hero.get("heroType"))
+                # Удаляем героя из списка доступных
+                available_heroes.remove(slot_hero)
+                
         return suitable_heroes
 
     async def _process_constellation(self, constellation: dict) -> None:
@@ -905,7 +941,28 @@ class BaseBot:
             constellation_name = constellation.get("name", "Unknown constellation")
             challenges = constellation.get("challenges", [])
             
-            for challenge in challenges:
+            def get_challenge_priority(challenge):
+                resource_type = challenge.get("resourceType", "")
+                value = challenge.get("value", 0)
+                
+                priorities = {
+                    "gacha": 5,
+                    "points": 3,
+                    "purpleStones": 2,
+                    "greenStones": 1,
+                    "gold": 4
+                }
+                
+                resource_priority = priorities.get(resource_type, 0)
+                return (resource_priority, value)
+                
+            sorted_challenges = sorted(
+                challenges,
+                key=get_challenge_priority,
+                reverse=True
+            )
+            
+            for challenge in sorted_challenges:
                 try:
                     challenge_name = challenge.get("name", "Unknown challenge")
                     challenge_type = challenge.get("challengeType")
@@ -914,12 +971,23 @@ class BaseBot:
                         logger.error(f"{self.session_name} | ❌ Challenge type not specified for {challenge_name}")
                         continue
                     
+                    value = challenge.get("value", 0)
+                    received = challenge.get("received", 0)
+                    if value <= received:
+                        continue
+                    
+                    unlock_at = challenge.get("unlockAt", 0)
+                    current_time = int(time() * 1000)
+                    if unlock_at > current_time:
+                        continue
+                    
                     min_level = challenge.get("minLevel", 1)
                     min_stars = challenge.get("minStars", 1)
                     required_skill = challenge.get("heroSkill")
                     required_power = challenge.get("power", 0)
                     
                     slots = challenge.get("orderedSlots", [])
+                    total_slots = len([s for s in slots if s.get("unlocked", True)])
                     
                     user_data = await self.get_user_data()
                     if not user_data:
@@ -937,9 +1005,12 @@ class BaseBot:
                     )
                     
                     if suitable_heroes:
-                        await self._send_heroes_to_challenge(challenge_type, suitable_heroes)
-                    else:
-                        pass
+                        logger.info(
+                            f"{self.session_name} | 🎯 {challenge_name}: "
+                            f"found {len(suitable_heroes)}/{total_slots} heroes "
+                            f"(collected {received}/{value})"
+                        )
+                        await self._send_heroes_to_challenge(challenge_type, suitable_heroes, slots)
                 except Exception as e:
                     logger.error(f"{self.session_name} | Error processing challenge {challenge_name}: {str(e)}")
                     continue
