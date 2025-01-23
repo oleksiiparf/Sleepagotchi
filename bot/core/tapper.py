@@ -507,7 +507,7 @@ class BaseBot:
                 
             cost_gold = hero.get("costLevelGold", 0)
             cost_green = hero.get("costLevelGreen", 0)
-            
+
             if cost_gold > 0 and cost_green > 0:
                 if gold >= cost_gold and green_stones >= cost_green:
                     result = await self.level_up_hero(hero_type)
@@ -525,51 +525,68 @@ class BaseBot:
                 else:
                     not_enough_resources_count += 1
 
-        if upgraded_heroes:
-            logger.info(f"{self.session_name} | ✨ {' | '.join(upgraded_heroes)}")
-        if not_enough_resources_count > 0:
-            pass
-        if unavailable_upgrades_count > 0:
-            pass
-            if cooldown_heroes:
+            if upgraded_heroes:
+                logger.info(f"{self.session_name} | ✨ {' | '.join(upgraded_heroes)}")
+            if not_enough_resources_count > 0:
                 pass
+            if unavailable_upgrades_count > 0:
+                pass
+                if cooldown_heroes:
+                    pass
 
-    async def star_up_hero(self, hero_type: str) -> Optional[Dict]:
-        try:
-            response = await self.make_request(
-                method="POST",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/starUpHero",
-                params=self._init_data,
-                json={"heroType": hero_type}
-            )
-            return response
-        except Exception as e:
-            logger.error(f"{self.session_name} | Error upgrading star level of hero: {str(e)}")
-            return None
+            async def star_up_hero(self, hero_type: str) -> Optional[Dict]:
+                try:
+                    response = await self.make_request(
+                        method="POST",
+                        url=f"https://tgapi.sleepagotchi.com/v1/tg/starUpHero",
+                        params=self._init_data,
+                        json={"heroType": hero_type}
+                    )
+                    return response
+                except Exception as e:
+                    logger.error(f"{self.session_name} | Error upgrading star level of hero: {str(e)}")
+                    return None
 
-    async def _send_heroes_to_challenges(self) -> None:
-        user_data = await self.get_user_data()
-        if not user_data:
-            return
+            async def _send_heroes_to_challenges(self) -> None:
+                user_data = await self.get_user_data()
+                if not user_data:
+                    return
 
-        heroes = user_data.get("player", {}).get("heroes", [])
-        if not heroes:
-            logger.info(f"{self.session_name} | ❌ No heroes for challenges")
-            return
+                heroes = user_data.get("player", {}).get("heroes", [])
+                if not heroes:
+                    logger.info(f"{self.session_name} | ❌ No heroes for challenges")
+                    return
 
-        available_heroes = [hero for hero in heroes if hero.get("unlockAt", 0) == 0]
-        if not available_heroes:
-            logger.info(f"{self.session_name} | ❌ All heroes are busy")
-            return
-            
-        logger.info(f"{self.session_name} | 👥 Available heroes: {len(available_heroes)}")
+                available_heroes = [hero for hero in heroes if hero.get("unlockAt", 0) == 0]
+                if not available_heroes:
+                    logger.info(f"{self.session_name} | ❌ All heroes are busy")
+                    return
 
-        constellations = await self.get_constellations()
-        if not constellations:
-            return
-            
-        for constellation in constellations.get("constellations", []):
-            await self._process_constellation(constellation)
+                logger.info(f"{self.session_name} | 👥 Available heroes: {len(available_heroes)}")
+
+                start_index = 0
+                while True:
+                    constellations = await self.get_constellations(start_index=start_index)
+                    if not constellations:
+                        break
+
+                    has_active_challenges = False
+                    for constellation in constellations.get("constellations", []):
+                        for challenge in constellation.get("challenges", []):
+                            if challenge.get("received", 0) < challenge.get("value", 0):
+                                has_active_challenges = True
+                                break
+                        if has_active_challenges:
+                            break
+
+                    if not has_active_challenges:
+                        start_index += 5
+                        continue
+
+                    for constellation in constellations.get("constellations", []):
+                        await self._process_constellation(constellation)
+
+                    break
 
     async def process_bot_logic(self) -> None:
         current_time = datetime.now().strftime("%H:%M:%S")
