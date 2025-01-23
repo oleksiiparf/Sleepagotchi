@@ -547,46 +547,46 @@ class BaseBot:
                     logger.error(f"{self.session_name} | Error upgrading star level of hero: {str(e)}")
                     return None
 
-            async def _send_heroes_to_challenges(self) -> None:
-                user_data = await self.get_user_data()
-                if not user_data:
-                    return
+    async def _send_heroes_to_challenges(self) -> None:
+        user_data = await self.get_user_data()
+        if not user_data:
+            return
 
-                heroes = user_data.get("player", {}).get("heroes", [])
-                if not heroes:
-                    logger.info(f"{self.session_name} | ❌ No heroes for challenges")
-                    return
+        heroes = user_data.get("player", {}).get("heroes", [])
+        if not heroes:
+            logger.info(f"{self.session_name} | ❌ No heroes for challenges")
+            return
 
-                available_heroes = [hero for hero in heroes if hero.get("unlockAt", 0) == 0]
-                if not available_heroes:
-                    logger.info(f"{self.session_name} | ❌ All heroes are busy")
-                    return
+        available_heroes = [hero for hero in heroes if hero.get("unlockAt", 0) == 0]
+        if not available_heroes:
+            logger.info(f"{self.session_name} | ❌ All heroes are busy")
+            return
+            
+        logger.info(f"{self.session_name} | 👥 Available heroes: {len(available_heroes)}")
 
-                logger.info(f"{self.session_name} | 👥 Available heroes: {len(available_heroes)}")
-
-                start_index = 0
-                while True:
-                    constellations = await self.get_constellations(start_index=start_index)
-                    if not constellations:
+        start_index = 0
+        while True:
+            constellations = await self.get_constellations(start_index=start_index)
+            if not constellations:
+                break
+                
+            has_active_challenges = False
+            for constellation in constellations.get("constellations", []):
+                for challenge in constellation.get("challenges", []):
+                    if challenge.get("received", 0) < challenge.get("value", 0):
+                        has_active_challenges = True
                         break
-
-                    has_active_challenges = False
-                    for constellation in constellations.get("constellations", []):
-                        for challenge in constellation.get("challenges", []):
-                            if challenge.get("received", 0) < challenge.get("value", 0):
-                                has_active_challenges = True
-                                break
-                        if has_active_challenges:
-                            break
-
-                    if not has_active_challenges:
-                        start_index += 5
-                        continue
-
-                    for constellation in constellations.get("constellations", []):
-                        await self._process_constellation(constellation)
-
+                if has_active_challenges:
                     break
+                    
+            if not has_active_challenges:
+                start_index += 5
+                continue
+                
+            for constellation in constellations.get("constellations", []):
+                await self._process_constellation(constellation)
+                
+            break
 
     async def process_bot_logic(self) -> None:
         current_time = datetime.now().strftime("%H:%M:%S")
