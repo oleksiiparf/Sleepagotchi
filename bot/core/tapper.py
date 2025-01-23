@@ -414,7 +414,7 @@ class BaseBot:
         except Exception as e:
             if "error_star_up_no_resources" in str(e):
                 return None
-            logger.error(f"{self.session_name} | Ошибка повышения звезд героя: {str(e)}")
+            logger.error(f"{self.session_name} | Error upgrading hero stars: {str(e)}")
             return None
 
     async def _level_up_best_heroes(self) -> None:
@@ -459,7 +459,6 @@ class BaseBot:
         unavailable_upgrades_count = 0
         cooldown_heroes = []
 
-        # Сначала повышаем звезды
         for hero in heroes:
             hero_type = hero.get("heroType")
             hero_name = hero.get("name")
@@ -494,7 +493,6 @@ class BaseBot:
                             if card["amount"] > 0
                         }
 
-        # Обновляем данные после повышения звезд
         user_data = await self.get_user_data()
         if not user_data:
             return
@@ -504,7 +502,6 @@ class BaseBot:
         gold = resources.get("gold", {}).get("amount", 0)
         green_stones = resources.get("greenStones", {}).get("amount", 0)
 
-        # Затем повышаем уровни
         for hero in heroes:
             hero_type = hero.get("heroType")
             hero_name = hero.get("name")
@@ -543,15 +540,14 @@ class BaseBot:
                 else:
                     not_enough_resources_count += 1
 
-        # Выводим результаты
         if upgraded_heroes:
             logger.info(f"{self.session_name} | ✨ {' | '.join(upgraded_heroes)}")
         if not_enough_resources_count > 0:
-            logger.info(f"{self.session_name} | ❌ {not_enough_resources_count} героев ожидают ресурсов")
+            logger.info(f"{self.session_name} | ❌ {not_enough_resources_count} heroes are waiting for resources")
         if unavailable_upgrades_count > 0:
-            logger.info(f"{self.session_name} | ⏳ {unavailable_upgrades_count} героев не могут быть улучшены сейчас")
+            logger.info(f"{self.session_name} | ⏳ {unavailable_upgrades_count} heroes cannot be upgraded right now")
             if cooldown_heroes:
-                logger.info(f"{self.session_name} | 🕒 На кулдауне: {', '.join(cooldown_heroes)}")
+                logger.info(f"{self.session_name} | 🕒 On cooldown: {', '.join(cooldown_heroes)}")
 
     async def _send_heroes_to_challenges(self) -> None:
         user_data = await self.get_user_data()
