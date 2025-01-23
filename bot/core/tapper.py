@@ -402,6 +402,21 @@ class BaseBot:
                         logger.info(f"{self.session_name} | 🎁 {reward_name} ({reward_type})")
                 await asyncio.sleep(1)
     
+    async def star_up_hero(self, hero_type: str) -> Optional[Dict]:
+        try:
+            response = await self.make_request(
+                method="POST",
+                url=f"https://tgapi.sleepagotchi.com/v1/tg/starUpHero",
+                params=self._init_data,
+                json={"heroType": hero_type}
+            )
+            return response
+        except Exception as e:
+            if "error_star_up_no_resources" in str(e):
+                return None
+            logger.error(f"{self.session_name} | Ошибка повышения звезд героя: {str(e)}")
+            return None
+
     async def _level_up_best_heroes(self) -> None:
         user_data = await self.get_user_data()
         if not user_data:
@@ -444,6 +459,7 @@ class BaseBot:
         unavailable_upgrades_count = 0
         cooldown_heroes = []
 
+        # Сначала повышаем звезды
         for hero in heroes:
             hero_type = hero.get("heroType")
             hero_name = hero.get("name")
@@ -478,6 +494,7 @@ class BaseBot:
                             if card["amount"] > 0
                         }
 
+        # Обновляем данные после повышения звезд
         user_data = await self.get_user_data()
         if not user_data:
             return
@@ -487,6 +504,7 @@ class BaseBot:
         gold = resources.get("gold", {}).get("amount", 0)
         green_stones = resources.get("greenStones", {}).get("amount", 0)
 
+        # Затем повышаем уровни
         for hero in heroes:
             hero_type = hero.get("heroType")
             hero_name = hero.get("name")
@@ -507,7 +525,7 @@ class BaseBot:
                 
             cost_gold = hero.get("costLevelGold", 0)
             cost_green = hero.get("costLevelGreen", 0)
-
+            
             if cost_gold > 0 and cost_green > 0:
                 if gold >= cost_gold and green_stones >= cost_green:
                     result = await self.level_up_hero(hero_type)
@@ -525,27 +543,15 @@ class BaseBot:
                 else:
                     not_enough_resources_count += 1
 
-            if upgraded_heroes:
-                logger.info(f"{self.session_name} | ✨ {' | '.join(upgraded_heroes)}")
-            if not_enough_resources_count > 0:
-                pass
-            if unavailable_upgrades_count > 0:
-                pass
-                if cooldown_heroes:
-                    pass
-
-            async def star_up_hero(self, hero_type: str) -> Optional[Dict]:
-                try:
-                    response = await self.make_request(
-                        method="POST",
-                        url=f"https://tgapi.sleepagotchi.com/v1/tg/starUpHero",
-                        params=self._init_data,
-                        json={"heroType": hero_type}
-                    )
-                    return response
-                except Exception as e:
-                    logger.error(f"{self.session_name} | Error upgrading star level of hero: {str(e)}")
-                    return None
+        # Выводим результаты
+        if upgraded_heroes:
+            logger.info(f"{self.session_name} | ✨ {' | '.join(upgraded_heroes)}")
+        if not_enough_resources_count > 0:
+            logger.info(f"{self.session_name} | ❌ {not_enough_resources_count} героев ожидают ресурсов")
+        if unavailable_upgrades_count > 0:
+            logger.info(f"{self.session_name} | ⏳ {unavailable_upgrades_count} героев не могут быть улучшены сейчас")
+            if cooldown_heroes:
+                logger.info(f"{self.session_name} | 🕒 На кулдауне: {', '.join(cooldown_heroes)}")
 
     async def _send_heroes_to_challenges(self) -> None:
         user_data = await self.get_user_data()
