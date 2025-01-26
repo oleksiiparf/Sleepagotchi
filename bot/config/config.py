@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     SESSION_START_DELAY: int = 360
     ACTION_DELAY: tuple[int, int] = (2, 5)
-    REQUEST_RETRIES: int = 3   # Количество попыток повтора запроса при ошибке
+    REQUEST_RETRIES: int = 3
 
     SLEEP_TIME: tuple[int, int] = (600, 3600)
     REF_ID: str = '72633a323238363138373939'

@@ -1,4 +1,4 @@
-# Bot Bot
+# SleepagotchiLITE Bot
 
 [🇷🇺 Русский](README-RU.md) | [🇬🇧 English](README.md)
 
@@ -21,7 +21,7 @@
 ---
 
 ## 📜 Description
-**NAME** is an automated bot for the BITApp game. Supports multithreading, proxy integration, and automatic game management.
+**SleepagotchiLITE Bot** is an automated bot for the SleepagotchiLITE game. Supports multithreading, proxy integration, and automatic game management.
 
 ---
 
@@ -38,8 +38,8 @@
 ### Quick Start
 1. **Download the project:**
    ```bash
-   git clone https://github.com/Mffff4/REPNAME.git
-   cd REPNAME
+   git clone https://github.com/Mffff4/SleepagotchiLITE.git
+   cd SleepagotchiLITE
    ```
 
 2. **Install dependencies:**
@@ -127,7 +127,7 @@ Support development using cryptocurrencies:
 ## 📞 Contact
 
 If you have questions or suggestions:
-- **Telegram**: [Join our channel](---)
+- **Telegram**: [Join our channel](https://t.me/+vpXdTJ_S3mo0ZjIy)
 
 ---
 
