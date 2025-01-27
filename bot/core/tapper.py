@@ -462,22 +462,7 @@ class BaseBot:
         for hero in heroes:
             hero_type = hero.get("heroType")
             hero_name = hero.get("name")
-            hero_class = hero.get("class")
-            hero_rarity = self._get_hero_rarity(hero_type)
             
-            if hero_rarity in ["epic", "legendary"]:
-                continue
-                
-            if hero_rarity == "special":
-                current_level = hero.get("level", 0)
-                if current_level >= 50:
-                    continue
-                    
-            key = f"{hero_class}_{hero_rarity}"
-            if hero != best_heroes.get(key):
-                continue
-                
-            current_stars = hero.get("stars", 0)
             if hero_type in hero_cards and hero_cards[hero_type] >= hero.get("costStar", 0):
                 cards_needed = hero.get("costStar", 0)
                 if cards_needed > 0:
@@ -493,6 +478,7 @@ class BaseBot:
                             if card["amount"] > 0
                         }
 
+        # Улучшаем уровень только лучших героев
         user_data = await self.get_user_data()
         if not user_data:
             return
