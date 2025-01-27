@@ -152,10 +152,6 @@ class BaseBot:
                         
                     response_text = await response.text()
                     if response_text.strip().startswith(('<html', '<!DOCTYPE')):
-                        logger.error(f"{self.session_name} | Cloudflare protection on attempt {attempt + 1}/{settings.REQUEST_RETRIES}")
-                        logger.error(f"{self.session_name} | Status: {response.status}")
-                        logger.error(f"{self.session_name} | URL: {url}")
-                        logger.error(f"{self.session_name} | Headers: {dict(response.headers)}")
                         
                         if attempt < settings.REQUEST_RETRIES - 1:
                             await asyncio.sleep(uniform(1, 3))
