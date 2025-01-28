@@ -166,7 +166,9 @@ class BaseBot:
                         "error_level_up_unavalable",
                         "error_level_up_no_resources",
                         "error_level_up_max_level",
-                        "error_star_up_no_resources"
+                        "error_star_up_no_resources",
+                        "error_star_up_card_on_challenge",
+                        "error_challenge_in_progress"
                     ]
                     
                     is_silent_error = any(err in error_message for err in silent_errors)
