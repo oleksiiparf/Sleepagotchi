@@ -62,18 +62,31 @@ def get_unused_proxies(accounts_config: dict, proxy_path: str) -> list[str]:
 
 
 async def check_proxy(proxy: str) -> bool:
-    url = 'https://ifconfig.me/ip'
+    urls = [
+        'https://ifconfig.me/ip',
+        'https://api.ipify.org'
+    ]
     proxy_conn = ProxyConnector.from_url(proxy)
+    
     try:
         async with aiohttp.ClientSession(connector=proxy_conn, timeout=aiohttp.ClientTimeout(15)) as session:
-            response = await session.get(url)
-            if response.status == 200:
-                logger.success(f"Successfully connected to proxy. IP: {await response.text()}")
-                if not proxy_conn.closed:
-                    proxy_conn.close()
-                return True
-    except Exception:
-        logger.warning(f"Proxy {proxy} didn't respond")
+            for url in urls:
+                try:
+                    response = await session.get(url)
+                    if response.status == 200:
+                        ip = await response.text()
+                        logger.success(f"Successfully connected to proxy via {url}. IP: {ip}")
+                        if not proxy_conn.closed:
+                            proxy_conn.close()
+                        return True
+                except Exception:
+                    continue
+            
+            logger.warning(f"Proxy {proxy} failed all connection attempts")
+            return False
+            
+    except Exception as e:
+        logger.warning(f"Proxy {proxy} didn't respond: {str(e)}")
         return False
 
 
