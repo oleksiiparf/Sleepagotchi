@@ -67,7 +67,6 @@ async def check_proxy(proxy: str) -> bool:
         return False
         
     try:
-        # Проверяем наличие протокола
         if '://' not in proxy:
             logger.warning(f"No protocol specified in proxy: {proxy}")
             return False
@@ -95,14 +94,20 @@ async def check_proxy(proxy: str) -> bool:
             async with aiohttp.ClientSession(connector=proxy_conn, timeout=aiohttp.ClientTimeout(15)) as session:
                 for url in urls:
                     try:
-                        response = await session.get(url)
-                        if response.status == 200:
-                            ip = await response.text()
-                            logger.success(f"Successfully connected to proxy via {url}. IP: {ip}")
-                            if not proxy_conn.closed:
-                                proxy_conn.close()
-                            return True
-                    except Exception:
+                        async with session.get(url) as response:
+                            if response.status == 200:
+                                ip = await response.text()
+                                if ip and len(ip.split('.')) == 4:
+                                    logger.success(f"Successfully connected to proxy via {url}. IP: {ip}")
+                                    return True
+                                else:
+                                    logger.warning(f"Invalid IP response from {url}: {ip}")
+                                    continue
+                    except aiohttp.ClientError as e:
+                        logger.warning(f"Connection error with {url}: {str(e)}")
+                        continue
+                    except Exception as e:
+                        logger.warning(f"Unexpected error with {url}: {str(e)}")
                         continue
                 
                 logger.warning(f"Proxy {proxy} failed all connection attempts")
