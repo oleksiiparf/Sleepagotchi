@@ -77,7 +77,6 @@ async def check_proxy(proxy: str) -> bool:
             return False
             
         urls = [
-            'https://ifconfig.me/ip',
             'https://api.ipify.org'
         ]
         
