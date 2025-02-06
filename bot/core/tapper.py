@@ -152,7 +152,6 @@ class BaseBot:
                         
                     response_text = await response.text()
                     if response_text.strip().startswith(('<html', '<!DOCTYPE')):
-                        
                         if attempt < settings.REQUEST_RETRIES - 1:
                             await asyncio.sleep(uniform(1, 3))
                             continue
@@ -175,6 +174,12 @@ class BaseBot:
                     
                     if is_silent_error:
                         raise Exception(error_message)
+                        
+                    if response.status == 418 and "maintenance mode" in error_message.lower():
+                        maintenance_delay = uniform(300, 600)
+                        logger.warning(f"{self.session_name} | Server is in maintenance mode. Waiting {int(maintenance_delay)}s")
+                        await asyncio.sleep(maintenance_delay)
+                        return None
                         
                     if response.status == 401:
                         logger.error(f"{self.session_name} | Authorization error: {error_name} - {error_message}")
@@ -926,6 +931,18 @@ class BaseBot:
                 h.get("unlockAt", 0) <= current_time and
                 h.get("heroType") not in used_heroes)
         ]
+        
+        bonk_hero = next(
+            (hero for hero in available_heroes 
+             if hero.get("heroType") == "bonk" and
+             hero.get("level", 0) >= min_level and
+             hero.get("stars", 0) >= min_stars and
+             hero.get("power", 0) >= required_power),
+            None
+        )
+        
+        if bonk_hero:
+            return [bonk_hero]
         
         unlocked_slots = [
             slot for slot in slot_requirements 
