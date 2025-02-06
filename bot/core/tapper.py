@@ -127,14 +127,8 @@ class BaseBot:
         if not self._http_client:
             raise InvalidSession("HTTP client not initialized")
 
-        maintenance_sleep = 0
         for attempt in range(settings.REQUEST_RETRIES):
             try:
-                if maintenance_sleep > 0:
-                    logger.warning(f"{self.session_name} | Server is in maintenance mode. Waiting {int(maintenance_sleep)}s")
-                    await asyncio.sleep(maintenance_sleep)
-                    maintenance_sleep = 0
-
                 from bot.core.headers import get_headers
                 
                 headers = get_headers()
@@ -182,10 +176,10 @@ class BaseBot:
                         raise Exception(error_message)
                         
                     if response.status == 418 and "maintenance mode" in error_message.lower():
-                        if attempt < settings.REQUEST_RETRIES - 1:
-                            maintenance_sleep = uniform(300, 600)
-                            continue
-                        raise Exception("Server is in maintenance mode")
+                        maintenance_delay = uniform(300, 600)
+                        logger.warning(f"{self.session_name} | Server is in maintenance mode. Waiting {int(maintenance_delay)}s")
+                        await asyncio.sleep(maintenance_delay)
+                        return None
                         
                     if response.status == 401:
                         logger.error(f"{self.session_name} | Authorization error: {error_name} - {error_message}")
@@ -222,8 +216,6 @@ class BaseBot:
             except Exception as e:
                 if not any(err in str(e) for err in silent_errors):
                     logger.error(f"{self.session_name} | Unknown error on attempt {attempt + 1}/{settings.REQUEST_RETRIES}: {str(e)}")
-                if "maintenance mode" in str(e).lower():
-                    raise
                 return None
 
     async def run(self) -> None:
@@ -259,13 +251,6 @@ class BaseBot:
                 except InvalidSession as e:
                     raise
                 except Exception as error:
-                    error_str = str(error).lower()
-                    if "maintenance mode" in error_str:
-                        maintenance_delay = uniform(300, 600)
-                        logger.warning(f"{self.session_name} | Server is in maintenance mode. Waiting {int(maintenance_delay)}s")
-                        await asyncio.sleep(maintenance_delay)
-                        continue
-                        
                     sleep_duration = uniform(60, 120)
                     logger.error(f"{self.session_name} | Unknown error: {error}. Waiting {int(sleep_duration)}s")
                     await asyncio.sleep(sleep_duration)
@@ -393,7 +378,7 @@ class BaseBot:
             try:
                 response = await self.make_request(
                     method="POST",
-                    url="https://tgapi.sleepagotchi.com/v1/tg/spendGacha",
+                    url="https://telegram-api.sleepagotchi.com/v1/tg/spendGacha",
                     params=self._init_data,
                     json={"amount": 1, "strategy": "free"}
                 )
@@ -424,7 +409,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="POST",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/starUpHero",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/starUpHero",
                 params=self._init_data,
                 json={"heroType": hero_type}
             )
@@ -654,7 +639,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="GET",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/getUserData",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/getUserData",
                 params=self._init_data
             )
             return response
@@ -666,7 +651,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="POST",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/spendGacha",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/spendGacha",
                 params=self._init_data,
                 json={"amount": amount, "strategy": strategy}
             )
@@ -679,7 +664,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="POST",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/getConstellations",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/getConstellations",
                 params=self._init_data,
                 json={"startIndex": start_index, "amount": amount}
             )
@@ -750,7 +735,7 @@ class BaseBot:
             
             response = await self.make_request(
                 method="POST",
-                url="https://tgapi.sleepagotchi.com/v1/tg/sendToChallenge",
+                url="https://telegram-api.sleepagotchi.com/v1/tg/sendToChallenge",
                 params=self._init_data,
                 json={
                     "challengeType": challenge_type,
@@ -772,7 +757,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="GET",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/claimChallengesRewards",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/claimChallengesRewards",
                 params=self._init_data
             )
             return response
@@ -784,7 +769,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="GET",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/getDailyRewards",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/getDailyRewards",
                 params=self._init_data
             )
             return response
@@ -796,7 +781,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="GET",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/claimDailyRewards",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/claimDailyRewards",
                 params=self._init_data
             )
             return response
@@ -808,7 +793,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="POST",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/levelUpHero",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/levelUpHero",
                 params=self._init_data,
                 json={"heroType": hero_type}
             )
@@ -828,7 +813,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="GET",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/getShop",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/getShop",
                 params=self._init_data
             )
             return response
@@ -840,7 +825,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="POST",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/buyShop",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/buyShop",
                 params=self._init_data,
                 json={"slotType": slot_type}
             )
@@ -857,7 +842,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="POST",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/useRedeemCode",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/useRedeemCode",
                 params=self._init_data,
                 json={"code": code}
             )
@@ -876,7 +861,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="POST",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/getReferralsInfo",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/getReferralsInfo",
                 params=self._init_data,
                 json={"page": 1, "rowsPerPage": 20}
             )
@@ -889,7 +874,7 @@ class BaseBot:
         try:
             response = await self.make_request(
                 method="GET",
-                url=f"https://tgapi.sleepagotchi.com/v1/tg/claimReferralRewards",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/claimReferralRewards",
                 params=self._init_data
             )
             return response
