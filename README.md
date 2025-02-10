@@ -102,6 +102,8 @@
 | **DEVICE_PARAMS**         | False                | Use custom device parameters                                 |
 | **AUTO_UPDATE**           | True                 | Automatic updates                                           |
 | **CHECK_UPDATE_INTERVAL** | 300                  | Update check interval (seconds)                            |
+| **BUY_GACHA_PACKS**       | True                 | Buy gacha packs                                             |
+| **GEMS_SAFE_BALANCE**     | 1000                 | Safe balance of gems that cannot be spent                  |
 
 
 ## 💰 Support and Donations

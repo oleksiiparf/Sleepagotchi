@@ -360,7 +360,6 @@ class BaseBot:
             except Exception as e:
                 logger.error(f"{self.session_name} | Error receiving free items: {str(e)}")
                 continue
-
     async def _use_free_gacha(self) -> None:
         user_data = await self.get_user_data()
         if not user_data:
@@ -370,8 +369,7 @@ class BaseBot:
         resources = user_data.get("player", {}).get("resources", {})
         current_time = int(time() * 1000)
         next_claim = meta.get("freeGachaNextClaim", 0)
-        gacha_amount = resources.get("gacha", {}).get("amount", 0)
-        
+
         if next_claim > current_time:
             logger.info(f"{self.session_name} | ⏳ Gacha → {self._format_next_time(next_claim)}")
         else:
@@ -387,24 +385,73 @@ class BaseBot:
                         reward_name = reward.get("name", "Unknown")
                         reward_type = reward.get("type", "Unknown")
                         logger.info(f"{self.session_name} | 🎁 {reward_name} ({reward_type})")
-                user_data = await self.get_user_data()
-                if user_data:
-                    gacha_amount = user_data.get("player", {}).get("resources", {}).get("gacha", {}).get("amount", 0)
             except Exception as e:
-                logger.error(f"{self.session_name} | Error spending gacha: {str(e)}")
+                logger.error(f"{self.session_name} | Error spending free gacha: {str(e)}")
+
+        user_data = await self.get_user_data()
+        if user_data:
+            gacha_amount = user_data.get("player", {}).get("resources", {}).get("gacha", {}).get("amount", 0)
+
+            if gacha_amount > 0:
+                logger.info(f"{self.session_name} | 🎲 Using {gacha_amount} gacha attempts")
+
+                for _ in range(gacha_amount):
+                    result = await self.spend_gacha(amount=1, strategy="gacha")
+                    if result and "rewards" in result:
+                        for reward in result["rewards"]:
+                            reward_name = reward.get("name", "Unknown")
+                            reward_type = reward.get("type", "Unknown")
+                            logger.info(f"{self.session_name} | 🎁 {reward_name} ({reward_type})")
+                    await asyncio.sleep(1)
+
+    async def _buy_gacha_packs_with_gems(self) -> None:
+        user_data = await self.get_user_data()
+        if not user_data:
+            logger.error(f"{self.session_name} | Failed to get user data for buying gacha packs")
+            return
+
+        resources = user_data.get("player", {}).get("resources", {})
+        gems = resources.get("gem", {}).get("amount", 0)
+
+        GEMS_PER_PACK = user_data.get("player", {}).get("costs", {}).get("gachaGemCost", 500)
+
+        if gems > settings.GEMS_SAFE_BALANCE:
+            available_gems = gems - settings.GEMS_SAFE_BALANCE
+            packs_to_buy = available_gems // GEMS_PER_PACK
             
-        if gacha_amount > 0:
-            logger.info(f"{self.session_name} | 🎲 {gacha_amount} attempts")
-            
-            for _ in range(gacha_amount):
-                result = await self.spend_gacha(amount=1, strategy="gacha")
-                if result and "rewards" in result:
-                    for reward in result["rewards"]:
-                        reward_name = reward.get("name", "Unknown")
-                        reward_type = reward.get("type", "Unknown")
-                        logger.info(f"{self.session_name} | 🎁 {reward_name} ({reward_type})")
-                await asyncio.sleep(1)
-    
+            if packs_to_buy > 0:
+                logger.info(f"{self.session_name} | 💎 Can buy {packs_to_buy} packs for {packs_to_buy * GEMS_PER_PACK} gems (keeping {settings.GEMS_SAFE_BALANCE} gems safe)")
+                
+                for pack_num in range(packs_to_buy):
+                    try:
+                        logger.info(f"{self.session_name} | 💎 Buying pack {pack_num + 1}/{packs_to_buy}")
+                        result = await self.make_request(
+                            method="POST",
+                            url="https://telegram-api.sleepagotchi.com/v1/tg/spendGacha",
+                            params=self._init_data,
+                            json={"amount": 1, "strategy": "gem"}
+                        )
+                        if result and "rewards" in result:
+                            for reward in result["rewards"]:
+                                reward_name = reward.get("name", "Unknown")
+                                reward_type = reward.get("type", "Unknown")
+                                logger.info(f"{self.session_name} | 🎁 {reward_name} ({reward_type})")
+                        await asyncio.sleep(1)
+
+                        user_data = await self.get_user_data()
+                        if user_data:
+                            gems = user_data.get("player", {}).get("resources", {}).get("gem", {}).get("amount", 0)
+                            if gems <= settings.GEMS_SAFE_BALANCE:
+                                logger.info(f"{self.session_name} | 💎 Reached safe balance of {settings.GEMS_SAFE_BALANCE} gems")
+                                break
+                    except Exception as e:
+                        logger.error(f"{self.session_name} | Error buying pack with gems: {str(e)}")
+                        break
+            else:
+                pass
+        else:
+            logger.info(f"{self.session_name} | 💎 Gems balance {gems} is below safe balance {settings.GEMS_SAFE_BALANCE}")
+
     async def star_up_hero(self, hero_type: str) -> Optional[Dict]:
         try:
             response = await self.make_request(
@@ -427,13 +474,13 @@ class BaseBot:
 
         heroes = user_data.get("player", {}).get("heroes", [])
         resources = user_data.get("player", {}).get("resources", {})
-        
+
         hero_cards = {
-            card["heroType"]: card["amount"] 
+            card["heroType"]: card["amount"]
             for card in resources.get("heroCard", [])
             if card["amount"] > 0
         }
-        
+
         gold = resources.get("gold", {}).get("amount", 0)
         green_stones = resources.get("greenStones", {}).get("amount", 0)
 
@@ -446,7 +493,7 @@ class BaseBot:
             hero_class = hero.get("class")
             hero_type = hero.get("heroType")
             hero_rarity = self._get_hero_rarity(hero_type)
-            
+
             key = f"{hero_class}_{hero_rarity}"
             if key not in heroes_by_class_and_rarity:
                 heroes_by_class_and_rarity[key] = []
@@ -465,7 +512,7 @@ class BaseBot:
         for hero in heroes:
             hero_type = hero.get("heroType")
             hero_name = hero.get("name")
-            
+
             if hero_type in hero_cards and hero_cards[hero_type] >= hero.get("costStar", 0):
                 cards_needed = hero.get("costStar", 0)
                 if cards_needed > 0:
@@ -476,7 +523,7 @@ class BaseBot:
                         if not user_data:
                             return
                         hero_cards = {
-                            card["heroType"]: card["amount"] 
+                            card["heroType"]: card["amount"]
                             for card in user_data.get("player", {}).get("resources", {}).get("heroCard", [])
                             if card["amount"] > 0
                         }
@@ -484,7 +531,7 @@ class BaseBot:
         user_data = await self.get_user_data()
         if not user_data:
             return
-            
+
         heroes = user_data.get("player", {}).get("heroes", [])
         resources = user_data.get("player", {}).get("resources", {})
         gold = resources.get("gold", {}).get("amount", 0)
@@ -642,6 +689,10 @@ class BaseBot:
         
         await delay()
         await self._use_free_gacha()
+        
+        if settings.BUY_GACHA_PACKS:
+            await delay()
+            await self._buy_gacha_packs_with_gems()
         
         await delay()
         await self._level_up_best_heroes()

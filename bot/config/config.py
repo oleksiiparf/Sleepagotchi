@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     CHECK_UPDATE_INTERVAL: int = 300
     BLACKLISTED_SESSIONS: str = ""
 
+    BUY_GACHA_PACKS: bool = True
+    GEMS_SAFE_BALANCE: int = 1000
+
     @property
     def blacklisted_sessions(self) -> List[str]:
         return [s.strip() for s in self.BLACKLISTED_SESSIONS.split(',') if s.strip()]
