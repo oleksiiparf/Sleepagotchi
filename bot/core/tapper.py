@@ -417,38 +417,72 @@ class BaseBot:
 
         if gems > settings.GEMS_SAFE_BALANCE:
             available_gems = gems - settings.GEMS_SAFE_BALANCE
-            packs_to_buy = available_gems // GEMS_PER_PACK
+            total_packs = available_gems // GEMS_PER_PACK
             
-            if packs_to_buy > 0:
-                logger.info(f"{self.session_name} | 💎 Can buy {packs_to_buy} packs for {packs_to_buy * GEMS_PER_PACK} gems (keeping {settings.GEMS_SAFE_BALANCE} gems safe)")
+            if total_packs > 0:
+                bulk_packs = total_packs // 10
+                remaining_packs = total_packs % 10
                 
-                for pack_num in range(packs_to_buy):
-                    try:
-                        logger.info(f"{self.session_name} | 💎 Buying pack {pack_num + 1}/{packs_to_buy}")
-                        result = await self.make_request(
-                            method="POST",
-                            url="https://telegram-api.sleepagotchi.com/v1/tg/spendGacha",
-                            params=self._init_data,
-                            json={"amount": 1, "strategy": "gem"}
-                        )
-                        if result and "rewards" in result:
-                            for reward in result["rewards"]:
-                                reward_name = reward.get("name", "Unknown")
-                                reward_type = reward.get("type", "Unknown")
-                                logger.info(f"{self.session_name} | 🎁 {reward_name} ({reward_type})")
-                        await asyncio.sleep(1)
+                if bulk_packs > 0:
+                    logger.info(f"{self.session_name} | 💎 Buying {bulk_packs} bulk packs (10 each)")
+                    for bulk_num in range(bulk_packs):
+                        try:
+                            logger.info(f"{self.session_name} | 💎 Buying bulk pack {bulk_num + 1}/{bulk_packs}")
+                            result = await self.make_request(
+                                method="POST",
+                                url="https://telegram-api.sleepagotchi.com/v1/tg/spendGacha",
+                                params=self._init_data,
+                                json={"amount": 10, "strategy": "gem"}
+                            )
+                            if result and "rewards" in result:
+                                for reward in result["rewards"]:
+                                    reward_name = reward.get("name", "Unknown")
+                                    reward_type = reward.get("type", "Unknown")
+                                    logger.info(f"{self.session_name} | 🎁 {reward_name} ({reward_type})")
+                            await asyncio.sleep(1)
 
-                        user_data = await self.get_user_data()
-                        if user_data:
-                            gems = user_data.get("player", {}).get("resources", {}).get("gem", {}).get("amount", 0)
-                            if gems <= settings.GEMS_SAFE_BALANCE:
-                                logger.info(f"{self.session_name} | 💎 Reached safe balance of {settings.GEMS_SAFE_BALANCE} gems")
-                                break
-                    except Exception as e:
-                        logger.error(f"{self.session_name} | Error buying pack with gems: {str(e)}")
-                        break
+                            user_data = await self.get_user_data()
+                            if user_data:
+                                gems = user_data.get("player", {}).get("resources", {}).get("gem", {}).get("amount", 0)
+                                logger.info(f"{self.session_name} | 💎 Gems remaining: {gems}")
+                                if gems <= settings.GEMS_SAFE_BALANCE:
+                                    logger.info(f"{self.session_name} | 💎 Reached safe balance of {settings.GEMS_SAFE_BALANCE} gems")
+                                    return
+                        except Exception as e:
+                            logger.error(f"{self.session_name} | Error buying bulk pack with gems: {str(e)}")
+                            break
+                
+                # Покупаем оставшиеся паки по одному
+                if remaining_packs > 0:
+                    logger.info(f"{self.session_name} | 💎 Buying {remaining_packs} individual packs")
+                    for pack_num in range(remaining_packs):
+                        try:
+                            logger.info(f"{self.session_name} | 💎 Buying pack {pack_num + 1}/{remaining_packs}")
+                            result = await self.make_request(
+                                method="POST",
+                                url="https://telegram-api.sleepagotchi.com/v1/tg/spendGacha",
+                                params=self._init_data,
+                                json={"amount": 1, "strategy": "gem"}
+                            )
+                            if result and "rewards" in result:
+                                for reward in result["rewards"]:
+                                    reward_name = reward.get("name", "Unknown")
+                                    reward_type = reward.get("type", "Unknown")
+                                    logger.info(f"{self.session_name} | 🎁 {reward_name} ({reward_type})")
+                            await asyncio.sleep(1)
+
+                            user_data = await self.get_user_data()
+                            if user_data:
+                                gems = user_data.get("player", {}).get("resources", {}).get("gem", {}).get("amount", 0)
+                                logger.info(f"{self.session_name} | 💎 Gems remaining: {gems}")
+                                if gems <= settings.GEMS_SAFE_BALANCE:
+                                    logger.info(f"{self.session_name} | 💎 Reached safe balance of {settings.GEMS_SAFE_BALANCE} gems")
+                                    return
+                        except Exception as e:
+                            logger.error(f"{self.session_name} | Error buying pack with gems: {str(e)}")
+                            break
             else:
-                pass
+                logger.info(f"{self.session_name} | 💎 Not enough gems to buy packs (need {GEMS_PER_PACK} gems above safe balance)")
         else:
             logger.info(f"{self.session_name} | 💎 Gems balance {gems} is below safe balance {settings.GEMS_SAFE_BALANCE}")
 
