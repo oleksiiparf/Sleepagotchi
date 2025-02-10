@@ -452,9 +452,7 @@ class BaseBot:
                             logger.error(f"{self.session_name} | Error buying bulk pack with gems: {str(e)}")
                             break
                 
-                # Покупаем оставшиеся паки по одному
                 if remaining_packs > 0:
-                    logger.info(f"{self.session_name} | 💎 Buying {remaining_packs} individual packs")
                     for pack_num in range(remaining_packs):
                         try:
                             logger.info(f"{self.session_name} | 💎 Buying pack {pack_num + 1}/{remaining_packs}")
@@ -482,7 +480,7 @@ class BaseBot:
                             logger.error(f"{self.session_name} | Error buying pack with gems: {str(e)}")
                             break
             else:
-                logger.info(f"{self.session_name} | 💎 Not enough gems to buy packs (need {GEMS_PER_PACK} gems above safe balance)")
+                pass
         else:
             logger.info(f"{self.session_name} | 💎 Gems balance {gems} is below safe balance {settings.GEMS_SAFE_BALANCE}")
 
