@@ -516,7 +516,9 @@ class BaseBot:
         gold = resources.get("gold", {}).get("amount", 0)
         green_stones = resources.get("greenStones", {}).get("amount", 0)
         gems = resources.get("gem", {}).get("amount", 0)
-        logger.info(f"{self.session_name} | 💰 {gold} | 🟢 {green_stones} | 💎 {gems}")
+        purple_stones = resources.get("purpleStones", {}).get("amount", 0)
+
+        logger.info(f"{self.session_name} | 💰 {gold} | 🟢 {green_stones} | 🟣 {purple_stones} | 💎 {gems}")
         if hero_cards:
             logger.info(f"{self.session_name} | 🎴 {len(hero_cards)} types of cards")
 
