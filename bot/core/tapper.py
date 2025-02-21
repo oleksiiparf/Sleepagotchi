@@ -715,12 +715,16 @@ class BaseBot:
                     amount = reward_data.get("amount", 0)
                     logger.info(f"{self.session_name} | 🎫 {amount} {reward_type}")
         
+        
         await delay()
         await self._collect_all_rewards()
         
         await delay()
         await self._collect_shop_rewards()
         
+        await delay()
+        await self._process_missions()
+
         await delay()
         await self._use_free_gacha()
         
@@ -1199,9 +1203,80 @@ class BaseBot:
         except Exception as e:
             logger.error(f"{self.session_name} | Error processing constellations: {str(e)}")
 
+    async def get_missions(self) -> Optional[Dict]:
+        try:
+            response = await self.make_request(
+                method="GET",
+                url="https://telegram-api.sleepagotchi.com/v1/tg/getMissions",
+                params=self._init_data
+            )
+            return response
+        except Exception as e:
+            logger.error(f"{self.session_name} | Error getting missions: {str(e)}")
+            return None
+
+    async def report_mission_event(self, mission_key: str) -> Optional[Dict]:
+        try:
+            response = await self.make_request(
+                method="POST",
+                url="https://telegram-api.sleepagotchi.com/v1/tg/reportMissionEvent",
+                params=self._init_data,
+                json={"missionKey": mission_key}
+            )
+            return response
+        except Exception as e:
+            logger.error(f"{self.session_name} | Error sending mission event {mission_key}: {str(e)}")
+            return None
+    async def claim_mission(self, mission_key: str) -> Optional[Dict]:
+        try:
+            response = await self.make_request(
+                method="POST",
+                url="https://telegram-api.sleepagotchi.com/v1/tg/claimMission",
+                params=self._init_data,
+                json={"missionKey": mission_key}
+            )
+            return response
+        except Exception as e:
+            logger.error(f"{self.session_name} | Error claiming reward for mission {mission_key}: {str(e)}")
+            return None
+
+    async def _process_missions(self) -> None:
+        missions_data = await self.get_missions()
+        if not missions_data or "missions" not in missions_data:
+            return
+
+        for mission in missions_data["missions"]:
+            mission_key = mission.get("missionKey")
+            claimed = mission.get("claimed", False)
+            progress = mission.get("progress", 0)
+            condition = mission.get("condition", 1)
+            available = mission.get("available", False)
+            rewards = mission.get("rewards", [])
+
+            if claimed:
+                continue
+
+            reward_info = []
+            for reward in rewards:
+                amount = reward.get("amount", 0)
+                resource_type = reward.get("resourceType", "unknown")
+                reward_info.append(f"{amount} {resource_type}")
+
+            if progress < condition:
+                logger.info(f"{self.session_name} | 📋 Sending event for mission {mission_key}")
+                await self.report_mission_event(mission_key)
+                await asyncio.sleep(2)
+
+                logger.info(f"{self.session_name} | 🎁 Attempting to claim reward for mission {mission_key}")
+                result = await self.claim_mission(mission_key)
+                if result:
+                    if reward_info:
+                        logger.info(f"{self.session_name} | ✨ Received: {' | '.join(reward_info)}")
+                await asyncio.sleep(0.5)
+
 async def run_tapper(tg_client: UniversalTelegramClient):
     bot = BaseBot(tg_client=tg_client)
     try:
         await bot.run()
     except InvalidSession as e:
-        logger.error(f"Invalid Session: {e}")
+        logger.error(f"Invalid session: {e}")
