@@ -1078,9 +1078,16 @@ class BaseBot:
                 h.get("heroType") not in busy_heroes and
                 h.get("heroType") not in used_heroes)
         ]
-        
         if not available_heroes:
             return []
+
+        bonk_hero = next((hero for hero in available_heroes if hero.get("heroType") == "bonk"), None)
+        if bonk_hero:
+            if (bonk_hero.get("level", 0) >= min_level and 
+                bonk_hero.get("stars", 0) >= min_stars and 
+                bonk_hero.get("power", 0) >= required_power):
+                logger.info(f"{self.session_name} | 🦾 Sending bonk to the challenge alone")
+                return [bonk_hero]
         
         unlocked_slots = [
             slot for slot in slot_requirements 
