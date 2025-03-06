@@ -30,6 +30,7 @@ class BaseBot:
         self._http_client: Optional[CloudflareScraper] = None
         self._current_proxy: Optional[str] = None
         self._access_token: Optional[str] = None
+        self._refresh_token: Optional[str] = None
         self._is_first_run: Optional[bool] = None
         self._init_data: Optional[str] = None
         self._current_ref_id: Optional[str] = None
@@ -123,8 +124,28 @@ class BaseBot:
             logger.error(f"{self.session_name} | Session initialization error: {str(e)}")
             return False
 
+    async def login(self, init_data: str) -> bool:
+        try:
+            response = await self.make_request(
+                method="POST",
+                url="https://telegram-api.sleepagotchi.com/v1/tg/login",
+                json={
+                    "loginType": "tg",
+                    "payload": init_data
+                }
+            )
+            
+            if response and "accessToken" in response and "refreshToken" in response:
+                self._access_token = response["accessToken"]
+                self._refresh_token = response["refreshToken"]
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"{self.session_name} | Authorization error: {str(e)}")
+            return False
+
     async def make_request(self, method: str, url: str, **kwargs) -> Optional[Dict]:
-        if not self._http_client:
+        if not self._http_client and url != "https://telegram-api.sleepagotchi.com/v1/tg/login":
             raise InvalidSession("HTTP client not initialized")
 
         for attempt in range(settings.REQUEST_RETRIES):
@@ -135,6 +156,9 @@ class BaseBot:
                 if 'headers' in kwargs:
                     headers.update(kwargs['headers'])
                     del kwargs['headers']
+                
+                if self._access_token and url != "https://telegram-api.sleepagotchi.com/v1/tg/login":
+                    headers["Authorization"] = f"Bearer {self._access_token}"
                 
                 if 'params' in kwargs:
                     query_string = urlencode(kwargs['params'])
@@ -223,26 +247,28 @@ class BaseBot:
             return
 
         random_delay = uniform(1, settings.SESSION_START_DELAY)
-        logger.info(f"{self.session_name} | Bot will start in {int(random_delay)}s")
+        logger.info(f"{self.session_name} | The bot will start in {int(random_delay)}s")
         await asyncio.sleep(random_delay)
 
         try:
-            await self.get_tg_web_data()
-            if not self._init_data:
-                raise InvalidSession("Failed to initialize tg_web_data")
-        except Exception as e:
-            logger.error(f"{self.session_name} | Error getting tg_web_data: {str(e)}")
-            return
-
-        proxy_conn = {'connector': ProxyConnector.from_url(self._current_proxy)} if self._current_proxy else {}
-        async with CloudflareScraper(timeout=aiohttp.ClientTimeout(60), **proxy_conn) as http_client:
-            self._http_client = http_client
+            init_data = await self.get_tg_web_data()
+            if not init_data:
+                raise InvalidSession("Failed to get tg_web_data")
+                
+            proxy_conn = {'connector': ProxyConnector.from_url(self._current_proxy)} if self._current_proxy else {}
+            self._http_client = CloudflareScraper(timeout=aiohttp.ClientTimeout(60), **proxy_conn)
+            
+            raw_init_data = urlencode(init_data)
+            if not await self.login(raw_init_data):
+                raise InvalidSession("Failed to authorize")
+                
+            self._init_data = init_data
 
             while True:
                 try:
                     session_config = config_utils.get_session_config(self.session_name, CONFIG_PATH)
                     if not await self.check_and_update_proxy(session_config):
-                        logger.warning(f"{self.session_name} | Could not find a working proxy. Waiting 5 minutes.")
+                        logger.warning(f"{self.session_name} | Failed to find a working proxy. Waiting 5 minutes")
                         await asyncio.sleep(300)
                         continue
 
@@ -254,6 +280,12 @@ class BaseBot:
                     sleep_duration = uniform(60, 120)
                     logger.error(f"{self.session_name} | Unknown error: {error}. Waiting {int(sleep_duration)}s")
                     await asyncio.sleep(sleep_duration)
+        except InvalidSession as e:
+            logger.error(f"{self.session_name} | Session error: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"{self.session_name} | Critical error: {str(e)}")
+            return
 
     def _format_time(self, milliseconds: int) -> str:
         seconds = milliseconds // 1000
