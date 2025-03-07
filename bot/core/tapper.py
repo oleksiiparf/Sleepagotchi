@@ -249,14 +249,13 @@ class BaseBot:
                 url="https://telegram-api.sleepagotchi.com/v1/tg/refresh",
                 json={"refreshToken": self._refresh_token}
             )
-            
             if response and "accessToken" in response and "refreshToken" in response:
                 self._access_token = response["accessToken"]
                 self._refresh_token = response["refreshToken"]
                 return True
             return False
-        except Exception as e:
-            logger.error(f"{self.session_name} | Ошибка обновления токена: {str(e)}")
+        except Exception as error:
+            logger.error(f"{self.session_name} | Token refresh error: {str(error)}")
             return False
 
     async def run(self) -> None:
@@ -264,13 +263,13 @@ class BaseBot:
             return
 
         random_delay = uniform(1, settings.SESSION_START_DELAY)
-        logger.info(f"{self.session_name} | Бот запустится через {int(random_delay)}с")
+        logger.info(f"{self.session_name} | Bot will start in {int(random_delay)}s")
         await asyncio.sleep(random_delay)
 
         try:
             init_data = await self.get_tg_web_data()
             if not init_data:
-                raise InvalidSession("Не удалось получить tg_web_data")
+                raise InvalidSession("Failed to obtain tg_web_data")
                 
             proxy_conn = {'connector': ProxyConnector.from_url(self._current_proxy)} if self._current_proxy else {}
             self._http_client = CloudflareScraper(timeout=aiohttp.ClientTimeout(60), **proxy_conn)
