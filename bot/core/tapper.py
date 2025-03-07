@@ -242,30 +242,50 @@ class BaseBot:
                     logger.error(f"{self.session_name} | Unknown error on attempt {attempt + 1}/{settings.REQUEST_RETRIES}: {str(e)}")
                 return None
 
+    async def refresh_token(self) -> bool:
+        try:
+            response = await self.make_request(
+                method="POST",
+                url="https://telegram-api.sleepagotchi.com/v1/tg/refresh",
+                json={"refreshToken": self._refresh_token}
+            )
+            
+            if response and "accessToken" in response and "refreshToken" in response:
+                self._access_token = response["accessToken"]
+                self._refresh_token = response["refreshToken"]
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"{self.session_name} | Ошибка обновления токена: {str(e)}")
+            return False
+
     async def run(self) -> None:
         if not await self.initialize_session():
             return
 
         random_delay = uniform(1, settings.SESSION_START_DELAY)
-        logger.info(f"{self.session_name} | The bot will start in {int(random_delay)}s")
+        logger.info(f"{self.session_name} | Бот запустится через {int(random_delay)}с")
         await asyncio.sleep(random_delay)
 
         try:
             init_data = await self.get_tg_web_data()
             if not init_data:
-                raise InvalidSession("Failed to get tg_web_data")
+                raise InvalidSession("Не удалось получить tg_web_data")
                 
             proxy_conn = {'connector': ProxyConnector.from_url(self._current_proxy)} if self._current_proxy else {}
             self._http_client = CloudflareScraper(timeout=aiohttp.ClientTimeout(60), **proxy_conn)
             
             raw_init_data = urlencode(init_data)
             if not await self.login(raw_init_data):
-                raise InvalidSession("Failed to authorize")
+                raise InvalidSession("Failed to authenticate")
                 
             self._init_data = init_data
 
             while True:
                 try:
+                    if not await self.refresh_token():
+                        if not await self.login(raw_init_data):
+                            raise InvalidSession("Failed to refresh session")
                     session_config = config_utils.get_session_config(self.session_name, CONFIG_PATH)
                     if not await self.check_and_update_proxy(session_config):
                         logger.warning(f"{self.session_name} | Failed to find a working proxy. Waiting 5 minutes")
