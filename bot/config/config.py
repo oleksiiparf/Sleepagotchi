@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     DEBUG_LOGGING: bool = False
 
     AUTO_UPDATE: bool = True
-    CHECK_UPDATE_INTERVAL: int = 300
+    CHECK_UPDATE_INTERVAL: int = 60
     BLACKLISTED_SESSIONS: str = ""
 
     BUY_GACHA_PACKS: bool = True
