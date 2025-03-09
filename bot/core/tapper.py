@@ -1252,15 +1252,85 @@ class BaseBot:
 
     async def _process_all_constellations(self) -> None:
         try:
-            constellations = await self.get_constellations()
-            if not constellations:
+            # Собираем все испытания и их прогресс
+            all_challenges = []
+            constellations = await self.get_constellations(amount=20)
+            if not constellations or "constellations" not in constellations:
                 return
                 
-            for constellation in constellations:
+            for constellation in constellations["constellations"]:
+                for challenge in constellation.get("challenges", []):
+                    progress = challenge.get("progress", 0)
+                    required_progress = challenge.get("requiredProgress", 1)
+                    progress_percentage = (progress / required_progress) if required_progress > 0 else 1
+                    
+                    all_challenges.append({
+                        "constellation": constellation,
+                        "challenge": challenge,
+                        "progress_percentage": progress_percentage
+                    })
+            
+            # Если есть bonk герой, отправляем его на испытание с наименьшим прогрессом
+            user_data = await self.get_user_data()
+            if not user_data or "heroes" not in user_data:
+                return
+                
+            heroes = user_data["heroes"]
+            bonk_hero = next((hero for hero in heroes if hero.get("heroType") == "bonk"), None)
+            
+            if bonk_hero:
+                current_time = int(time() * 1000)
+                is_bonk_available = (int(bonk_hero.get("unlockAt", 0)) <= current_time and
+                                     bonk_hero.get("heroType") not in self._challenges_in_progress)
+                
+                if is_bonk_available and all_challenges:
+                    sorted_challenges = sorted(all_challenges, key=lambda x: x["progress_percentage"])
+                    
+                    for challenge_data in sorted_challenges:
+                        constellation = challenge_data["constellation"]
+                        challenge = challenge_data["challenge"]
+                        
+                        constellation_type = constellation.get("constellationType")
+                        challenge_type = challenge.get("challengeType")
+                        
+                        if challenge.get("completed", False) or challenge.get("inProgress", False):
+                            continue
+                            
+                        slots = challenge.get("slots", [])
+                        unlocked_slots = any(slot.get("unlocked", True) for slot in slots)
+                        if not unlocked_slots:
+                            continue
+                        
+                        min_level = challenge.get("minLevel", 0)
+                        min_stars = challenge.get("minStars", 0)
+                        required_skill = challenge.get("requiredSkill", "")
+                        required_power = challenge.get("requiredPower", 0)
+                        
+                        if (bonk_hero.get("level", 0) >= min_level and 
+                            bonk_hero.get("stars", 0) >= min_stars and 
+                            bonk_hero.get("power", 0) >= required_power):
+                            
+                            progress = challenge.get("progress", 0)
+                            required_progress = challenge.get("requiredProgress", 1)
+                            
+                            logger.info(f"{self.session_name} | 🦾 Sending bonk to the challenge with the lowest progress")
+                            logger.info(f"{self.session_name} | 🎯 {constellation_type} {challenge_type}: "
+                                       f"progress {progress}/{required_progress}")
+                            
+                            heroes_formatted = self._format_heroes_for_challenge([bonk_hero])
+                            await self._send_heroes_to_challenge(
+                                challenge_type=f"{constellation_type}_{challenge_type}",
+                                heroes=heroes_formatted,
+                                slots=slots
+                            )
+                            self._challenges_in_progress.add(bonk_hero.get("heroType"))
+                            break
+            
+            for constellation in constellations["constellations"]:
                 await self._process_constellation(constellation)
+            
         except Exception as e:
             logger.error(f"{self.session_name} | Error processing constellations: {str(e)}")
-
     async def get_missions(self) -> Optional[Dict]:
         try:
             response = await self.make_request(
