@@ -191,7 +191,9 @@ class BaseBot:
                         "error_level_up_max_level",
                         "error_star_up_no_resources",
                         "error_star_up_card_on_challenge",
-                        "error_challenge_in_progress"
+                        "error_challenge_in_progress",
+                        "error_mission_claim_not_availible",
+                        "error_level_up_on_challenge"
                     ]
                     
                     is_silent_error = any(err in error_message for err in silent_errors)
@@ -233,6 +235,11 @@ class BaseBot:
                 return None
             except aiohttp.ClientError as e:
                 logger.error(f"{self.session_name} | Client error on attempt {attempt + 1}/{settings.REQUEST_RETRIES}: {str(e)}")
+                if attempt < settings.REQUEST_RETRIES - 1:
+                    await asyncio.sleep(uniform(1, 3))
+                    continue
+                return None
+            except json.JSONDecodeError as e:
                 if attempt < settings.REQUEST_RETRIES - 1:
                     await asyncio.sleep(uniform(1, 3))
                     continue
@@ -1252,7 +1259,6 @@ class BaseBot:
 
     async def _process_all_constellations(self) -> None:
         try:
-            # Собираем все испытания и их прогресс
             all_challenges = []
             constellations = await self.get_constellations(amount=20)
             if not constellations or "constellations" not in constellations:
@@ -1270,7 +1276,6 @@ class BaseBot:
                         "progress_percentage": progress_percentage
                     })
             
-            # Если есть bonk герой, отправляем его на испытание с наименьшим прогрессом
             user_data = await self.get_user_data()
             if not user_data or "heroes" not in user_data:
                 return
@@ -1331,6 +1336,7 @@ class BaseBot:
             
         except Exception as e:
             logger.error(f"{self.session_name} | Error processing constellations: {str(e)}")
+
     async def get_missions(self) -> Optional[Dict]:
         try:
             response = await self.make_request(
@@ -1355,6 +1361,7 @@ class BaseBot:
         except Exception as e:
             logger.error(f"{self.session_name} | Error sending mission event {mission_key}: {str(e)}")
             return None
+
     async def claim_mission(self, mission_key: str) -> Optional[Dict]:
         try:
             response = await self.make_request(
@@ -1378,7 +1385,7 @@ class BaseBot:
             claimed = mission.get("claimed", False)
             progress = mission.get("progress", 0)
             condition = mission.get("condition", 1)
-            available = mission.get("available", False)
+            availible = mission.get("availible", False)
             rewards = mission.get("rewards", [])
 
             if claimed:
@@ -1390,17 +1397,20 @@ class BaseBot:
                 resource_type = reward.get("resourceType", "unknown")
                 reward_info.append(f"{amount} {resource_type}")
 
-            if progress < condition:
-                logger.info(f"{self.session_name} | 📋 Sending event for mission {mission_key}")
-                await self.report_mission_event(mission_key)
-                await asyncio.sleep(2)
+            try:
+                if progress < condition:
+                    logger.info(f"{self.session_name} | 📋 Sending event for mission {mission_key}")
+                    await self.report_mission_event(mission_key)
+                    await asyncio.sleep(0.5)
 
-                logger.info(f"{self.session_name} | 🎁 Attempting to claim reward for mission {mission_key}")
-                result = await self.claim_mission(mission_key)
-                if result:
-                    if reward_info:
+                    logger.info(f"{self.session_name} | 🎁 Attempting to claim reward for mission {mission_key}")
+                    result = await self.claim_mission(mission_key)
+                    if result and reward_info:
                         logger.info(f"{self.session_name} | ✨ Received: {' | '.join(reward_info)}")
+                    await asyncio.sleep(0.5)
+            except Exception:
                 await asyncio.sleep(0.5)
+                continue
 
 async def run_tapper(tg_client: UniversalTelegramClient):
     bot = BaseBot(tg_client=tg_client)
