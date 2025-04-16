@@ -1151,7 +1151,6 @@ class BaseBot:
                         resource_type == "gold" and not settings.FARM_GOLD or
                         resource_type == "gacha" and not settings.FARM_GACHA or
                         resource_type == "points" and not settings.FARM_POINTS):
-                        logger.info(f"{self.session_name} | 🚫 Skipping {challenge_name} - {resource_type} farming disabled")
                         continue
                     if not challenge_type:
                         continue
