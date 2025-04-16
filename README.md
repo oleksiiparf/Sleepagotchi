@@ -104,6 +104,12 @@
 | **CHECK_UPDATE_INTERVAL** | 300                  | Update check interval (seconds)                            |
 | **BUY_GACHA_PACKS**       | True                 | Buy gacha packs                                             |
 | **GEMS_SAFE_BALANCE**     | 1000                 | Safe balance of gems that cannot be spent                  |
+| **FARM_GREEN_STONES** | True | Farm green stones |
+| **FARM_PURPLE_STONES** | True | Farm purple stones |
+| **FARM_GOLD** | True | Farm gold |
+| **FARM_GACHA** | True | Farm gacha |
+| **FARM_POINTS** | True | Farm points |
+
 
 
 ## 💰 Support and Donations

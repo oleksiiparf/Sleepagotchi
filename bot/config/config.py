@@ -31,6 +31,20 @@ class Settings(BaseSettings):
 
     BUY_GACHA_PACKS: bool = True
     GEMS_SAFE_BALANCE: int = 1000
+    
+    # Resource farming settings
+    FARM_GREEN_STONES: bool = True
+    FARM_PURPLE_STONES: bool = True
+    FARM_GOLD: bool = True
+    FARM_GACHA: bool = True
+    FARM_POINTS: bool = True
+    
+    # Priority for bonk hero (1 = highest, 5 = lowest)
+    BONK_PRIORITY_GREEN: int = 3
+    BONK_PRIORITY_PURPLE: int = 4
+    BONK_PRIORITY_GOLD: int = 1
+    BONK_PRIORITY_GACHA: int = 2
+    BONK_PRIORITY_POINTS: int = 5
 
     @property
     def blacklisted_sessions(self) -> List[str]:
