@@ -91,6 +91,10 @@ async def register_sessions() -> None:
 
     if user_data:
         await config_utils.write_config_file(accounts_config, CONFIG_PATH)
+        
+        # Create session-specific .env file
+        config_utils.create_session_env_file(session_name, SESSIONS_PATH)
+        
         logger.success(
             f'Session added successfully @{user_data.username} | {user_data.first_name} {user_data.last_name}'
         )
