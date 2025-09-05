@@ -58,8 +58,8 @@ FARM_GOLD=True
 FARM_GACHA=True
 FARM_POINTS=True
 
-# Constellation settings
-CONSTELLATION_LAST_INDEX=0
+# Constellation settings (empty = use API value, number = manual override)
+CONSTELLATION_LAST_INDEX=
 
 # Priority for bonk hero (1 = highest, 5 = lowest)
 BONK_PRIORITY_GREEN=3
@@ -342,13 +342,17 @@ def interactive_config() -> None:
             # Configure numeric settings
             other_numeric_settings = [
                 ('GEMS_SAFE_BALANCE', 'Gems Safe Balance'),
-                ('CONSTELLATION_LAST_INDEX', 'Constellation Last Index')
+                ('CONSTELLATION_LAST_INDEX', 'Constellation Last Index (empty = use API value)')
             ]
             
             for key, label in other_numeric_settings:
                 current = read_session_env_file(session_name).get(key, 'Not set')
                 value = input(f"  {label} (current: {current}): ").strip()
-                if value.isdigit():
+                if key == 'CONSTELLATION_LAST_INDEX':
+                    # Allow empty value for CONSTELLATION_LAST_INDEX (means use API value)
+                    if value == '' or value.isdigit():
+                        update_session_setting(session_name, key, value)
+                elif value.isdigit():
                     update_session_setting(session_name, key, value)
             
             print("\n✅ Configuration updated!")

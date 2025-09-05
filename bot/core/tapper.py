@@ -443,7 +443,7 @@ class BaseBot:
             except Exception as e:
                 logger.error(f"{self.session_name} | Error receiving free items: {str(e)}")
                 continue
-                
+
     async def _use_free_gacha(self) -> None:
         user_data = await self.get_user_data()
         if not user_data:
@@ -801,8 +801,12 @@ class BaseBot:
         await self._level_up_bonk()
         
         await delay()
-        await self._process_bonk_and_dragon_constellations()
+        user_data = await self.get_user_data()
+        if not user_data:
+            return
+        await self._process_bonk_and_dragon_constellations(user_data)
 
+        # Refresh user data after constellation processing
         user_data = await self.get_user_data()
         if not user_data:
             return
@@ -1102,11 +1106,23 @@ class BaseBot:
             logger.error(f"{self.session_name} | Error claiming referral rewards: {str(e)}")
             return None
 
-    async def _process_bonk_and_dragon_constellations(self) -> None:
+    async def _process_bonk_and_dragon_constellations(self, user_data: dict) -> None:
         """Process constellations specifically for bonk and dragon epic heroes separately"""
         try:
             all_challenges = []
-            constellations = await self.get_constellations(start_index=self.session_settings.CONSTELLATION_LAST_INDEX, amount=20)
+            
+            # Determine constellation start index
+            # Use manual setting if provided (not None), otherwise use API value
+            if self.session_settings.CONSTELLATION_LAST_INDEX is not None:
+                start_index = self.session_settings.CONSTELLATION_LAST_INDEX
+                logger.info(f"{self.session_name} | 🌟 Using manual constellation index: {start_index}")
+            else:
+                # Get from API meta
+                meta = user_data.get("player", {}).get("meta", {})
+                start_index = meta.get("constellationsLastIndex", 0)
+                logger.info(f"{self.session_name} | 🌟 Using API constellation index: {start_index}")
+            
+            constellations = await self.get_constellations(start_index=start_index, amount=20)
             if not constellations or "constellations" not in constellations:
                 return
             

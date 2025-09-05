@@ -19,8 +19,8 @@ class SessionSettings(BaseSettings):
     FARM_GACHA: bool = True
     FARM_POINTS: bool = True
     
-    # Constellation settings
-    CONSTELLATION_LAST_INDEX: int = 0
+    # Constellation settings (None = use API value, int = manual override)
+    CONSTELLATION_LAST_INDEX: Optional[int] = None
 
     # Priority for bonk hero (1 = highest, 5 = lowest)
     BONK_PRIORITY_GREEN: int = 3
