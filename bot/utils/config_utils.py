@@ -1,5 +1,7 @@
 import asyncio
 import json
+import os
+import shutil
 from bot.utils import logger, log_error, AsyncInterProcessLock
 from opentele.api import API
 from os import path, remove
@@ -10,10 +12,18 @@ def read_config_file(config_path: str) -> dict:
     try:
         with open(config_path, 'r') as file:
             content = file.read()
-            return json.loads(content) if content else {}
+            if not content.strip():
+                return {}
+            return json.loads(content)
     except FileNotFoundError:
         with open(config_path, 'w'):
             logger.warning(f"Accounts config file `{config_path}` not found. Creating a new one.")
+        return {}
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in config file `{config_path}`: {e}")
+        return {}
+    except Exception as e:
+        logger.error(f"Error reading config file `{config_path}`: {e}")
         return {}
 
 
@@ -102,3 +112,144 @@ def get_api(acc_api: dict) -> API:
     api.lang_code = acc_api.get('lang_code', api.lang_code)
     api.lang_pack = acc_api.get('lang_pack', api.lang_pack)
     return api
+
+
+def get_session_farming_config(session_name: str, config_path: str) -> dict:
+    """Get farming configuration for a specific session"""
+    session_config = get_session_config(session_name, config_path)
+    return session_config.get('farming', {})
+
+
+def get_session_priority_config(session_name: str, config_path: str) -> dict:
+    """Get priority configuration for a specific session"""
+    session_config = get_session_config(session_name, config_path)
+    return session_config.get('priority', {})
+
+
+async def update_session_farming_config(session_name: str, farming_config: dict, config_path: str) -> None:
+    """Update farming configuration for a specific session"""
+    config = read_config_file(config_path)
+    if session_name not in config:
+        config[session_name] = {}
+    config[session_name]['farming'] = farming_config
+    await write_config_file(config, config_path)
+
+
+async def update_session_priority_config(session_name: str, priority_config: dict, config_path: str) -> None:
+    """Update priority configuration for a specific session"""
+    config = read_config_file(config_path)
+    if session_name not in config:
+        config[session_name] = {}
+    config[session_name]['priority'] = priority_config
+    await write_config_file(config, config_path)
+
+
+async def set_session_farming_setting(session_name: str, setting_name: str, value: bool, config_path: str) -> None:
+    """Set a specific farming setting for a session"""
+    farming_config = get_session_farming_config(session_name, config_path)
+    farming_config[setting_name] = value
+    await update_session_farming_config(session_name, farming_config, config_path)
+
+
+async def set_session_priority_setting(session_name: str, setting_name: str, value: int, config_path: str) -> None:
+    """Set a specific priority setting for a session"""
+    priority_config = get_session_priority_config(session_name, config_path)
+    priority_config[setting_name] = value
+    await update_session_priority_config(session_name, priority_config, config_path)
+
+
+def create_session_env_file(session_name: str, sessions_path: str, template_path: str = ".env-session") -> str:
+    """Create a session-specific .env file from template"""
+    session_env_file = os.path.join(sessions_path, f"{session_name}.env")
+    
+    if not os.path.exists(session_env_file):
+        if os.path.exists(template_path):
+            shutil.copy2(template_path, session_env_file)
+            logger.info(f"Created session config file: {session_env_file}")
+        else:
+            # Create default session config if template doesn't exist
+            default_config = """# Session-specific configuration for {session_name}
+
+BUY_GACHA_PACKS=False
+SPEND_GACHAS=False
+GEMS_SAFE_BALANCE=100000
+
+# Resource farming settings
+FARM_GREEN_STONES=True
+FARM_PURPLE_STONES=True
+FARM_GOLD=True
+FARM_GACHA=True
+FARM_POINTS=True
+
+# Priority for bonk hero (1 = highest, 5 = lowest)
+BONK_PRIORITY_GREEN=3
+BONK_PRIORITY_PURPLE=4
+BONK_PRIORITY_GOLD=1
+BONK_PRIORITY_GACHA=2
+BONK_PRIORITY_POINTS=5
+""".format(session_name=session_name)
+            
+            with open(session_env_file, 'w') as f:
+                f.write(default_config)
+            logger.info(f"Created default session config file: {session_env_file}")
+    
+    return session_env_file
+
+
+def get_session_env_file_path(session_name: str, sessions_path: str) -> str:
+    """Get the path to a session's .env file"""
+    return os.path.join(sessions_path, f"{session_name}.env")
+
+
+def session_env_file_exists(session_name: str, sessions_path: str) -> bool:
+    """Check if a session has its own .env file"""
+    session_env_file = get_session_env_file_path(session_name, sessions_path)
+    return os.path.exists(session_env_file)
+
+
+def update_session_env_setting(session_name: str, sessions_path: str, setting_name: str, value) -> bool:
+    """Update a specific setting in a session's .env file"""
+    session_env_file = get_session_env_file_path(session_name, sessions_path)
+    
+    if not os.path.exists(session_env_file):
+        logger.warning(f"Session .env file not found: {session_env_file}")
+        return False
+    
+    try:
+        # Read the current file
+        with open(session_env_file, 'r') as f:
+            lines = f.readlines()
+        
+        # Update the setting
+        setting_updated = False
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            if line_stripped.startswith(f"{setting_name}=") or line_stripped.startswith(f"{setting_name}: "):
+                # Convert boolean values to proper format
+                if isinstance(value, bool):
+                    value_str = "True" if value else "False"
+                else:
+                    value_str = str(value)
+                
+                lines[i] = f"{setting_name}={value_str}\n"
+                setting_updated = True
+                break
+        
+        # If setting wasn't found, add it
+        if not setting_updated:
+            if isinstance(value, bool):
+                value_str = "True" if value else "False"
+            else:
+                value_str = str(value)
+            lines.append(f"{setting_name}={value_str}\n")
+        
+        # Write back to file
+        with open(session_env_file, 'w') as f:
+            f.writelines(lines)
+        
+        logger.info(f"Updated {setting_name}={value} in {session_env_file}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to update session env file: {e}")
+        return False
