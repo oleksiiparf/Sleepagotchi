@@ -19,12 +19,6 @@ class SessionSettings(BaseSettings):
     FARM_GACHA: bool = True
     FARM_POINTS: bool = True
     
-    # Hero upgrade settings
-    LEVEL_UP_RARE: bool = True
-    LEVEL_UP_EPIC: bool = False
-    LEVEL_UP_LEGENDARY: bool = False
-    LEVEL_UP_SPECIAL: bool = True
-    
     # Constellation settings
     CONSTELLATION_LAST_INDEX: int = 0
 

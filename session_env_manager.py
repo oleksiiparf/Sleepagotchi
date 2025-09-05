@@ -58,12 +58,6 @@ FARM_GOLD=True
 FARM_GACHA=True
 FARM_POINTS=True
 
-# Hero upgrade settings
-LEVEL_UP_RARE=True
-LEVEL_UP_EPIC=False
-LEVEL_UP_LEGENDARY=False
-LEVEL_UP_SPECIAL=True
-
 # Constellation settings
 CONSTELLATION_LAST_INDEX=0
 
@@ -200,20 +194,6 @@ def show_session_config(session_name: str) -> None:
         value = config.get(key, 'Not set')
         print(f"  🔢 {label}: {value}")
     
-    # Hero upgrade settings
-    print("\n⬆️  Hero Upgrade Settings:")
-    upgrade_settings = [
-        ('LEVEL_UP_RARE', 'Level Up Rare Heroes'),
-        ('LEVEL_UP_EPIC', 'Level Up Epic Heroes'),
-        ('LEVEL_UP_LEGENDARY', 'Level Up Legendary Heroes'),
-        ('LEVEL_UP_SPECIAL', 'Level Up Special Heroes')
-    ]
-    
-    for key, label in upgrade_settings:
-        value = config.get(key, 'Not set')
-        emoji = "✅" if value == "True" else "❌" if value == "False" else "❓"
-        print(f"  {emoji} {label}: {value}")
-    
     # Other settings
     print("\n⚙️  Other Settings:")
     other_settings = [
@@ -308,21 +288,6 @@ def interactive_config() -> None:
             ]
             
             for key, label in farming_settings:
-                current = read_session_env_file(session_name).get(key, 'Not set')
-                value = input(f"  {label} (current: {current}): ").strip()
-                if value.lower() in ['true', 'false']:
-                    update_session_setting(session_name, key, value.title())
-            
-            # Configure hero upgrade settings
-            print("\n⬆️  Hero Upgrade Settings (True/False):")
-            upgrade_settings = [
-                ('LEVEL_UP_RARE', 'Level Up Rare Heroes'),
-                ('LEVEL_UP_EPIC', 'Level Up Epic Heroes'),
-                ('LEVEL_UP_LEGENDARY', 'Level Up Legendary Heroes'),
-                ('LEVEL_UP_SPECIAL', 'Level Up Special Heroes')
-            ]
-            
-            for key, label in upgrade_settings:
                 current = read_session_env_file(session_name).get(key, 'Not set')
                 value = input(f"  {label} (current: {current}): ").strip()
                 if value.lower() in ['true', 'false']:
