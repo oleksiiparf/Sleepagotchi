@@ -15,7 +15,7 @@ from bot.utils.universal_telegram_client import UniversalTelegramClient
 from bot.utils.proxy_utils import check_proxy, get_working_proxy
 from bot.utils.first_run import check_is_first_run, append_recurring_session
 from bot.config import settings
-from bot.utils import logger, config_utils, CONFIG_PATH
+from bot.utils import logger, config_utils, CONFIG_PATH, SESSIONS_PATH
 from bot.exceptions import InvalidSession
 
 
@@ -38,11 +38,26 @@ class BaseBot:
         self._challenges_in_progress = set()
         
         session_config = config_utils.get_session_config(self.session_name, CONFIG_PATH)
-        if not all(key in session_config for key in ('api', 'user_agent')):
+        if not session_config or not all(key in session_config for key in ('api', 'user_agent')):
             logger.critical("CHECK accounts_config.json as it might be corrupted")
             exit(-1)
+        
+        # Create session-specific .env file if it doesn't exist
+        try:
+            config_utils.create_session_env_file(self.session_name, SESSIONS_PATH)
+        except Exception as e:
+            logger.error(f"{self.session_name} | Error creating session env file: {e}")
+        
+        # Load session-specific settings
+        try:
+            self.session_settings = settings.get_session_settings(self.session_name, SESSIONS_PATH)
+        except Exception as e:
+            logger.error(f"{self.session_name} | Error loading session settings: {e}")
+            # Fall back to default SessionSettings
+            from bot.config.config import SessionSettings
+            self.session_settings = SessionSettings()
             
-        self.proxy = session_config.get('proxy')
+        self.proxy = session_config.get('proxy') if session_config else None
         if self.proxy:
             proxy = Proxy.from_str(self.proxy)
             self.tg_client.set_proxy(proxy)
@@ -292,8 +307,12 @@ class BaseBot:
                     if not await self.refresh_token():
                         if not await self.login(raw_init_data):
                             raise InvalidSession("Failed to refresh session")
-                    session_config = config_utils.get_session_config(self.session_name, CONFIG_PATH)
-                    if not await self.check_and_update_proxy(session_config):
+                    accounts_config = config_utils.read_config_file(CONFIG_PATH)
+                    if not accounts_config:
+                        logger.error(f"{self.session_name} | Unable to load accounts config")
+                        await asyncio.sleep(60)
+                        continue
+                    if not await self.check_and_update_proxy(accounts_config):
                         logger.warning(f"{self.session_name} | Failed to find a working proxy. Waiting 5 minutes")
                         await asyncio.sleep(300)
                         continue
@@ -303,8 +322,13 @@ class BaseBot:
                 except InvalidSession as e:
                     raise
                 except Exception as error:
+                    import traceback
                     sleep_duration = uniform(60, 120)
-                    logger.error(f"{self.session_name} | Unknown error: {error}. Waiting {int(sleep_duration)}s")
+                    logger.error(f"{self.session_name} | Unknown error: {error}")
+                    # Get the traceback and escape it properly
+                    tb_str = traceback.format_exc().replace('<', '&lt;').replace('>', '&gt;')
+                    logger.error(f"{self.session_name} | Traceback: {tb_str}")
+                    logger.error(f"{self.session_name} | Waiting {int(sleep_duration)}s")
                     await asyncio.sleep(sleep_duration)
         except InvalidSession as e:
             logger.error(f"{self.session_name} | Session error: {str(e)}")
@@ -338,7 +362,8 @@ class BaseBot:
             return "now"
             
         time_diff = next_time - current_time
-        next_datetime = datetime.fromtimestamp(next_time / 1000, timezone.utc)
+        # Convert to local timezone instead of UTC
+        next_datetime = datetime.fromtimestamp(next_time / 1000)
         
         return f"{next_datetime.strftime('%H:%M:%S')} (in {self._format_time(time_diff)})"
 
@@ -444,7 +469,11 @@ class BaseBot:
                         reward_type = reward.get("type", "Unknown")
                         logger.info(f"{self.session_name} | 🎁 {reward_name} ({reward_type})")
             except Exception as e:
-                logger.error(f"{self.session_name} | Error spending free gacha: {str(e)}")
+                logger.error(f"{self.session_name} | Error consuming free gacha: {str(e)}")
+
+        if not self.session_settings.SPEND_GACHAS:
+            logger.info(f"{self.session_name} | ❌ Gacha consuming is disabled")
+            return
 
         user_data = await self.get_user_data()
         if user_data:
@@ -473,8 +502,8 @@ class BaseBot:
 
         GEMS_PER_PACK = user_data.get("player", {}).get("costs", {}).get("gachaGemCost", 500)
 
-        if gems > settings.GEMS_SAFE_BALANCE:
-            available_gems = gems - settings.GEMS_SAFE_BALANCE
+        if gems > self.session_settings.GEMS_SAFE_BALANCE:
+            available_gems = gems - self.session_settings.GEMS_SAFE_BALANCE
             total_packs = available_gems // GEMS_PER_PACK
             
             if total_packs > 0:
@@ -503,8 +532,8 @@ class BaseBot:
                             if user_data:
                                 gems = user_data.get("player", {}).get("resources", {}).get("gem", {}).get("amount", 0)
                                 logger.info(f"{self.session_name} | 💎 Gems remaining: {gems}")
-                                if gems <= settings.GEMS_SAFE_BALANCE:
-                                    logger.info(f"{self.session_name} | 💎 Reached safe balance of {settings.GEMS_SAFE_BALANCE} gems")
+                                if gems <= self.session_settings.GEMS_SAFE_BALANCE:
+                                    logger.info(f"{self.session_name} | 💎 Reached safe balance of {self.session_settings.GEMS_SAFE_BALANCE} gems")
                                     return
                         except Exception as e:
                             logger.error(f"{self.session_name} | Error buying bulk pack with gems: {str(e)}")
@@ -531,8 +560,8 @@ class BaseBot:
                             if user_data:
                                 gems = user_data.get("player", {}).get("resources", {}).get("gem", {}).get("amount", 0)
                                 logger.info(f"{self.session_name} | 💎 Gems remaining: {gems}")
-                                if gems <= settings.GEMS_SAFE_BALANCE:
-                                    logger.info(f"{self.session_name} | 💎 Reached safe balance of {settings.GEMS_SAFE_BALANCE} gems")
+                                if gems <= self.session_settings.GEMS_SAFE_BALANCE:
+                                    logger.info(f"{self.session_name} | 💎 Reached safe balance of {self.session_settings.GEMS_SAFE_BALANCE} gems")
                                     return
                         except Exception as e:
                             logger.error(f"{self.session_name} | Error buying pack with gems: {str(e)}")
@@ -540,7 +569,7 @@ class BaseBot:
             else:
                 pass
         else:
-            logger.info(f"{self.session_name} | 💎 Gems balance {gems} is below safe balance {settings.GEMS_SAFE_BALANCE}")
+            logger.info(f"{self.session_name} | 💎 Gems balance {gems} is below safe balance {self.session_settings.GEMS_SAFE_BALANCE}")
 
     async def star_up_hero(self, hero_type: str) -> Optional[Dict]:
         try:
@@ -596,6 +625,10 @@ class BaseBot:
             class_heroes.sort(key=lambda x: (x.get("stars", 0), x.get("level", 0), x.get("power", 0)), reverse=True)
             best_heroes[key] = class_heroes[0]
 
+        # Need to print best heroes, single line
+        best_heroes_line = " | ".join(f"{hero['name']} (⭐{hero['stars']})" for hero in best_heroes.values())
+        logger.info(f"{self.session_name} | Best Heroes: {best_heroes_line}")
+
         upgraded_heroes = []
         not_enough_resources_count = 0
         unavailable_upgrades_count = 0
@@ -635,13 +668,18 @@ class BaseBot:
             hero_class = hero.get("class")
             hero_rarity = self._get_hero_rarity(hero_type)
             current_level = hero.get("level", 0)
-            
-            if hero_rarity in ["epic", "legendary"]:
+
+            if hero_rarity == "rare" and not self.session_settings.LEVEL_UP_RARE:
                 continue
-                
-            if hero_rarity == "special":
-                if current_level >= 50:
-                    continue
+
+            if hero_rarity == "epic" and not self.session_settings.LEVEL_UP_EPIC:
+                continue
+
+            if hero_rarity == "legendary" and not self.session_settings.LEVEL_UP_LEGENDARY:
+                continue
+
+            if hero_rarity == "special" and not self.session_settings.LEVEL_UP_SPECIAL:
+                continue
                     
             key = f"{hero_class}_{hero_rarity}"
             if hero != best_heroes.get(key):
@@ -668,13 +706,209 @@ class BaseBot:
                     not_enough_resources_count += 1
 
         if upgraded_heroes:
-            logger.info(f"{self.session_name} | ✨ {' | '.join(upgraded_heroes)}")
+            logger.info(f"{self.session_name} | ✨ Upgraded heroes: {' | '.join(upgraded_heroes)}")
         if not_enough_resources_count > 0:
             logger.info(f"{self.session_name} | ❌ {not_enough_resources_count} heroes are waiting for resources")
         if unavailable_upgrades_count > 0:
             logger.info(f"{self.session_name} | ⏳ {unavailable_upgrades_count} heroes cannot be upgraded right now")
             if cooldown_heroes:
                 logger.info(f"{self.session_name} | 🕒 On cooldown: {', '.join(cooldown_heroes)}")
+
+    async def _level_up_bonk(self) -> None:
+        """Level up bonk hero specifically, up to 5 times if resources allow"""
+        user_data = await self.get_user_data()
+        if not user_data:
+            return
+
+        heroes = user_data.get("player", {}).get("heroes", [])
+        resources = user_data.get("player", {}).get("resources", {})
+        current_time = int(time() * 1000)
+        
+        # Find bonk hero
+        bonk_hero = None
+        for hero in heroes:
+            if hero.get("heroType") == "bonk":
+                bonk_hero = hero
+                break
+        
+        if not bonk_hero:
+            logger.info(f"{self.session_name} | ❌ No bonk hero found")
+            return
+        
+        # Check if bonk hero is available (not in challenge)
+        bonk_unlock_at = bonk_hero.get("unlockAt", 0)
+        if isinstance(bonk_unlock_at, str):
+            try:
+                bonk_unlock_at = int(bonk_unlock_at)
+            except (ValueError, TypeError):
+                bonk_unlock_at = 0
+        elif bonk_unlock_at is None:
+            bonk_unlock_at = 0
+        
+        if bonk_unlock_at > current_time:
+            logger.info(f"{self.session_name} | ⏳ Bonk hero is in challenge, unlocks at {self._format_next_time(bonk_unlock_at)}")
+            return
+        
+        gold = resources.get("gold", {}).get("amount", 0)
+        green_stones = resources.get("greenStones", {}).get("amount", 0)
+        
+        logger.info(f"{self.session_name} | 🎯 Bonk hero: {bonk_hero.get('name')} (Lv.{bonk_hero.get('level', 0)}) | 💰 {gold} | 🟢 {green_stones}")
+        
+        upgraded_count = 0
+        max_upgrades = 5
+        
+        for attempt in range(max_upgrades):
+            # Refresh user data to get updated resources and hero stats
+            user_data = await self.get_user_data()
+            if not user_data:
+                break
+                
+            heroes = user_data.get("player", {}).get("heroes", [])
+            resources = user_data.get("player", {}).get("resources", {})
+            
+            # Find updated bonk hero
+            current_bonk = None
+            for hero in heroes:
+                if hero.get("heroType") == "bonk":
+                    current_bonk = hero
+                    break
+            
+            if not current_bonk:
+                break
+            
+            cost_gold = current_bonk.get("costLevelGold", 0)
+            cost_green = current_bonk.get("costLevelGreen", 0)
+            gold = resources.get("gold", {}).get("amount", 0)
+            green_stones = resources.get("greenStones", {}).get("amount", 0)
+            
+            if cost_gold > 0 and cost_green > 0:
+                if gold >= cost_gold and green_stones >= cost_green:
+                    result = await self.level_up_hero("bonk")
+                    if result:
+                        upgraded_count += 1
+                        new_level = current_bonk.get("level", 0) + 1
+                        logger.info(f"{self.session_name} | 📈 Bonk upgraded to level {new_level} ({upgraded_count}/{max_upgrades})")
+                    else:
+                        # Upgrade failed (likely cooldown or other restriction)
+                        logger.info(f"{self.session_name} | ⏳ Bonk upgrade failed, stopping attempts")
+                        break
+                else:
+                    # Not enough resources
+                    logger.info(f"{self.session_name} | ❌ Not enough resources for bonk upgrade (need: {cost_gold} gold, {cost_green} green)")
+                    break
+            else:
+                # No upgrade cost or max level reached
+                logger.info(f"{self.session_name} | ✅ Bonk hero is at max level or no upgrade cost")
+                break
+        
+        if upgraded_count > 0:
+            logger.info(f"{self.session_name} | 🎯 Bonk upgraded {upgraded_count} times")
+        elif upgraded_count == 0 and bonk_hero:
+            logger.info(f"{self.session_name} | 🎯 Bonk hero is ready but no upgrades performed")
+
+    async def _level_up_dragon(self) -> None:
+        """Level up dragon epic hero specifically, up to 3 times if resources allow and level <= 150"""
+        user_data = await self.get_user_data()
+        if not user_data:
+            return
+
+        heroes = user_data.get("player", {}).get("heroes", [])
+        resources = user_data.get("player", {}).get("resources", {})
+        current_time = int(time() * 1000)
+        
+        # Find dragon epic hero
+        dragon_hero = None
+        for hero in heroes:
+            if hero.get("heroType") == "dragonEpic":
+                dragon_hero = hero
+                break
+        
+        if not dragon_hero:
+            logger.info(f"{self.session_name} | ❌ No dragon epic hero found")
+            return
+        
+        # Check if dragon level is already >= 150
+        current_level = dragon_hero.get("level", 0)
+        if current_level >= 150:
+            logger.info(f"{self.session_name} | ✅ Dragon epic level {current_level} is above 150, skipping upgrades")
+            return
+        
+        # Check if dragon hero is available (not in challenge)
+        dragon_unlock_at = dragon_hero.get("unlockAt", 0)
+        if isinstance(dragon_unlock_at, str):
+            try:
+                dragon_unlock_at = int(dragon_unlock_at)
+            except (ValueError, TypeError):
+                dragon_unlock_at = 0
+        elif dragon_unlock_at is None:
+            dragon_unlock_at = 0
+        
+        if dragon_unlock_at > current_time:
+            logger.info(f"{self.session_name} | ⏳ Dragon epic hero is in challenge, unlocks at {self._format_next_time(dragon_unlock_at)}")
+            return
+        
+        gold = resources.get("gold", {}).get("amount", 0)
+        green_stones = resources.get("greenStones", {}).get("amount", 0)
+        
+        logger.info(f"{self.session_name} | 🐉 Dragon epic hero: {dragon_hero.get('name')} (Lv.{dragon_hero.get('level', 0)}) | 💰 {gold} | 🟢 {green_stones}")
+        
+        upgraded_count = 0
+        max_upgrades = 3
+        
+        for attempt in range(max_upgrades):
+            # Refresh user data to get updated resources and hero stats
+            user_data = await self.get_user_data()
+            if not user_data:
+                break
+                
+            heroes = user_data.get("player", {}).get("heroes", [])
+            resources = user_data.get("player", {}).get("resources", {})
+            
+            # Find updated dragon hero
+            current_dragon = None
+            for hero in heroes:
+                if hero.get("heroType") == "dragonEpic":
+                    current_dragon = hero
+                    break
+            
+            if not current_dragon:
+                break
+            
+            # Check level limit again after potential upgrades
+            current_level = current_dragon.get("level", 0)
+            if current_level >= 150:
+                logger.info(f"{self.session_name} | ✅ Dragon epic reached level {current_level}, stopping upgrades (limit: 150)")
+                break
+            
+            cost_gold = current_dragon.get("costLevelGold", 0)
+            cost_green = current_dragon.get("costLevelGreen", 0)
+            gold = resources.get("gold", {}).get("amount", 0)
+            green_stones = resources.get("greenStones", {}).get("amount", 0)
+            
+            if cost_gold > 0 and cost_green > 0:
+                if gold >= cost_gold and green_stones >= cost_green:
+                    result = await self.level_up_hero("dragonEpic")
+                    if result:
+                        upgraded_count += 1
+                        new_level = current_dragon.get("level", 0) + 1
+                        logger.info(f"{self.session_name} | 📈 Dragon epic upgraded to level {new_level} ({upgraded_count}/{max_upgrades})")
+                    else:
+                        # Upgrade failed (likely cooldown or other restriction)
+                        logger.info(f"{self.session_name} | ⏳ Dragon epic upgrade failed, stopping attempts")
+                        break
+                else:
+                    # Not enough resources
+                    logger.info(f"{self.session_name} | ❌ Not enough resources for dragon epic upgrade (need: {cost_gold} gold, {cost_green} green)")
+                    break
+            else:
+                # No upgrade cost or max level reached
+                logger.info(f"{self.session_name} | ✅ Dragon epic hero is at max level or no upgrade cost")
+                break
+        
+        if upgraded_count > 0:
+            logger.info(f"{self.session_name} | 🐉 Dragon epic upgraded {upgraded_count} times")
+        elif upgraded_count == 0 and dragon_hero:
+            logger.info(f"{self.session_name} | 🐉 Dragon epic hero is ready but no upgrades performed")
 
     async def _send_heroes_to_challenges(self) -> None:
         user_data = await self.get_user_data()
@@ -692,8 +926,8 @@ class BaseBot:
         if not available_heroes:
             logger.info(f"{self.session_name} | ❌ All heroes are busy")
             return
-            
-        start_index = 0
+
+        start_index = self.session_settings.CONSTELLATION_LAST_INDEX
         while True:
             constellations = await self.get_constellations(start_index=start_index, amount=10)
             if not constellations or not constellations.get("constellations"):
@@ -765,59 +999,105 @@ class BaseBot:
         async def delay():
             await asyncio.sleep(uniform(settings.ACTION_DELAY[0], settings.ACTION_DELAY[1]))
         
-        if self._is_first_run:
-            result = await self.use_redeem_code("013738")
-            if result and "rewards" in result:
-                rewards = result["rewards"]
-                for reward_type, reward_data in rewards.items():
-                    amount = reward_data.get("amount", 0)
-                    logger.info(f"{self.session_name} | 🎫 {amount} {reward_type}")
+        # if self._is_first_run:
+        #     result = await self.use_redeem_code("013738")
+        #     if result and "rewards" in result:
+        #         rewards = result["rewards"]
+        #         for reward_type, reward_data in rewards.items():
+        #             amount = reward_data.get("amount", 0)
+        #             logger.info(f"{self.session_name} | 🎫 {amount} {reward_type}")
         
         await delay()
         await self._collect_all_rewards()
         
         await delay()
         await self._collect_shop_rewards()
-        
-        await delay()
-        await self._process_missions()
+
+        if self.session_settings.PROCESS_MISSIONS:
+            await delay()
+            await self._process_missions()
 
         await delay()
         await self._use_free_gacha()
         
-        if settings.BUY_GACHA_PACKS:
+        if self.session_settings.BUY_GACHA_PACKS:
             await delay()
             await self._buy_gacha_packs_with_gems()
         
+        # await delay()
+        # await self._level_up_best_heroes()
+
         await delay()
-        await self._level_up_best_heroes()
+        await self._level_up_dragon()
         
         await delay()
-        await self._process_all_constellations()
+        await self._level_up_bonk()
         
-        constellations = await self.get_constellations()
-        current_time_ms = int(time() * 1000)
-        max_challenge_time = 0
-        
-        if constellations:
-            for constellation in constellations.get("constellations", []):
-                for challenge in constellation.get("challenges", []):
-                    if challenge.get("received", 0) < challenge.get("value", 0):
-                        slots = challenge.get("orderedSlots", [])
-                        has_busy_slots = any(
-                            slot.get("occupiedBy", "empty") != "empty" 
-                            for slot in slots
-                        )
-                        if has_busy_slots:
-                            challenge_time = challenge.get("time", 0)
-                            if challenge_time > max_challenge_time:
-                                max_challenge_time = challenge_time
-        
-        sleep_time = max_challenge_time if max_challenge_time > 0 else uniform(settings.SLEEP_TIME[0], settings.SLEEP_TIME[1])
-        
+        await delay()
+        await self._process_bonk_and_dragon_constellations()
+
+        user_data = await self.get_user_data()
+        if not user_data:
+            return
+
+        sleep_time = self._calculate_sleep_time(user_data)
         next_time = datetime.fromtimestamp(time() + sleep_time).strftime("%H:%M:%S")
         logger.info(f"{self.session_name} | 💤 → {next_time} ({self._format_time(int(sleep_time * 1000))})")
         await asyncio.sleep(sleep_time)
+
+    def _calculate_sleep_time(self, user_data: dict) -> float:
+        """Calculate optimal sleep time based on next available claim times"""
+        meta = user_data.get("player", {}).get("meta", {})
+        heroes = user_data.get("player", {}).get("heroes", [])
+        current_time = int(time() * 1000)
+        gacha_next_claim_time = meta.get("freeGachaNextClaim", 0)
+        
+        # Calculate next challenge claim time from heroes' unlockAt field
+        next_challenge_claim_time = 0
+        if heroes:
+            # Find all heroes that are currently in challenges (unlockAt > current_time)
+            heroes_in_challenges = []
+            for hero in heroes:
+                unlock_at = hero.get("unlockAt", 0)
+                # Convert to int if it's a string
+                if isinstance(unlock_at, str):
+                    try:
+                        unlock_at = int(unlock_at)
+                    except (ValueError, TypeError):
+                        unlock_at = 0
+                elif unlock_at is None:
+                    unlock_at = 0
+                
+                if unlock_at > current_time:
+                    heroes_in_challenges.append(unlock_at)
+            
+            if heroes_in_challenges:
+                next_challenge_claim_time = min(heroes_in_challenges)
+        
+        # Format timestamps for logging
+        gacha_time_str = self._format_next_time(gacha_next_claim_time) if gacha_next_claim_time > 0 else "none"
+        challenge_time_str = self._format_next_time(next_challenge_claim_time) if next_challenge_claim_time > 0 else "none"
+        logger.info(f"{self.session_name} | ⏳ Next free Gacha claim time: {gacha_time_str}")
+        logger.info(f"{self.session_name} | ⏳ Nearest Challenge finish time: {challenge_time_str}")
+
+        # Find the nearest future claim time
+        future_times = []
+        if gacha_next_claim_time > current_time:
+            future_times.append(gacha_next_claim_time)
+        if next_challenge_claim_time > current_time:
+            future_times.append(next_challenge_claim_time)
+        
+        if future_times:
+            # Select the nearest absolute timestamp and convert to seconds for sleep calculation
+            nearest_time_ms = min(future_times)
+            sleep_time = (nearest_time_ms - current_time) / 1000
+            # Add small random delay (1-3 minutes) to avoid exact timing patterns
+            sleep_time += uniform(60, 180)  # 1-3 minutes instead of full SLEEP_TIME range
+        else:
+            # No future times, use default random sleep
+            sleep_time = uniform(settings.SLEEP_TIME[0], settings.SLEEP_TIME[1])
+        
+        return sleep_time
 
     async def get_user_data(self) -> Optional[Dict]:
         try:
@@ -841,7 +1121,7 @@ class BaseBot:
             )
             return response
         except Exception as e:
-            logger.error(f"{self.session_name} | Error spending gacha: {str(e)}")
+            logger.error(f"{self.session_name} | Error consuming gacha: {str(e)}")
             return None
 
     async def get_constellations(self, start_index: int = 0, amount: int = 10) -> Optional[Dict]:
@@ -1066,7 +1346,7 @@ class BaseBot:
         elif hero_type.endswith("Rare"):
             return "rare"
             
-        if hero_type == "bonk":
+        if hero_type == "bonk" or hero_type == "dragonEpic":
             return "special"
             
         if "Element" in hero_type:
@@ -1139,18 +1419,18 @@ class BaseBot:
             constellation_name = constellation.get("name", "Unknown constellation")
             challenges = constellation.get("challenges", [])
             
-            logger.info(f"{self.session_name} | 🌟 Processing constellation: {constellation_name}")
+            logger.info(f"{self.session_name} | 🌟 Processing constellation: {constellation_name} with regular cards")
             
             for challenge in challenges:
                 try:
                     challenge_name = challenge.get("name", "Unknown challenge")
                     challenge_type = challenge.get("challengeType")
                     resource_type = challenge.get("resourceType", "")
-                    if (resource_type == "greenStones" and not settings.FARM_GREEN_STONES or
-                        resource_type == "purpleStones" and not settings.FARM_PURPLE_STONES or
-                        resource_type == "gold" and not settings.FARM_GOLD or
-                        resource_type == "gacha" and not settings.FARM_GACHA or
-                        resource_type == "points" and not settings.FARM_POINTS):
+                    if (resource_type == "greenStones" and not self.session_settings.FARM_GREEN_STONES or
+                        resource_type == "purpleStones" and not self.session_settings.FARM_PURPLE_STONES or
+                        resource_type == "gold" and not self.session_settings.FARM_GOLD or
+                        resource_type == "gacha" and not self.session_settings.FARM_GACHA or
+                        resource_type == "points" and not self.session_settings.FARM_POINTS):
                         continue
                     if not challenge_type:
                         continue
@@ -1166,6 +1446,7 @@ class BaseBot:
                     min_stars = challenge.get("minStars", 1)
                     required_power = challenge.get("power", 0)
                     constellation_type = constellation.get("constellationType")
+                    resource_type = challenge.get("resourceType", "")
                     full_challenge_key = f"{constellation_type}_{challenge_type}"
                     slots = challenge.get("orderedSlots", [])
                     total_slots = len([s for s in slots if s.get("unlocked", True)])
@@ -1211,6 +1492,11 @@ class BaseBot:
                             if result:
                                 for hero in suitable_heroes:
                                     self._challenges_in_progress.add(hero.get("heroType"))
+                    else:
+                        logger.info(
+                            f"{self.session_name} | ❌ {challenge_name} ({resource_type}): "
+                            f"no suitable heroes found (progress {received}/{value})"
+                        )
                 except Exception as e:
                     logger.error(f"{self.session_name} | Error processing challenge {challenge_name}: {str(e)}")
                     continue
@@ -1221,32 +1507,32 @@ class BaseBot:
     async def _process_all_constellations(self) -> None:
         try:
             all_challenges = []
-            constellations = await self.get_constellations(amount=20)
+            constellations = await self.get_constellations(start_index=self.session_settings.CONSTELLATION_LAST_INDEX, amount=20)
             if not constellations or "constellations" not in constellations:
                 return
             for constellation in constellations["constellations"]:
                 for challenge in constellation.get("challenges", []):
                     resource_type = challenge.get("resourceType", "")
-                    if (resource_type == "greenStones" and not settings.FARM_GREEN_STONES or
-                        resource_type == "purpleStones" and not settings.FARM_PURPLE_STONES or
-                        resource_type == "gold" and not settings.FARM_GOLD or
-                        resource_type == "gacha" and not settings.FARM_GACHA or
-                        resource_type == "points" and not settings.FARM_POINTS):
+                    if (resource_type == "greenStones" and not self.session_settings.FARM_GREEN_STONES or
+                        resource_type == "purpleStones" and not self.session_settings.FARM_PURPLE_STONES or
+                        resource_type == "gold" and not self.session_settings.FARM_GOLD or
+                        resource_type == "gacha" and not self.session_settings.FARM_GACHA or
+                        resource_type == "points" and not self.session_settings.FARM_POINTS):
                         continue
                     received = challenge.get("received", 0)
                     value = challenge.get("value", 1)
                     progress_percentage = (received / value) if value > 0 else 1
                     priority = 99
                     if resource_type == "greenStones":
-                        priority = settings.BONK_PRIORITY_GREEN
+                        priority = self.session_settings.BONK_PRIORITY_GREEN
                     elif resource_type == "purpleStones":
-                        priority = settings.BONK_PRIORITY_PURPLE
+                        priority = self.session_settings.BONK_PRIORITY_PURPLE
                     elif resource_type == "gold":
-                        priority = settings.BONK_PRIORITY_GOLD
+                        priority = self.session_settings.BONK_PRIORITY_GOLD
                     elif resource_type == "gacha":
-                        priority = settings.BONK_PRIORITY_GACHA
+                        priority = self.session_settings.BONK_PRIORITY_GACHA
                     elif resource_type == "points":
-                        priority = settings.BONK_PRIORITY_POINTS
+                        priority = self.session_settings.BONK_PRIORITY_POINTS
                     all_challenges.append({
                         "constellation": constellation,
                         "challenge": challenge,
@@ -1262,6 +1548,7 @@ class BaseBot:
                 current_time = int(time() * 1000)
                 is_bonk_available = (int(bonk_hero.get("unlockAt", 0)) <= current_time and
                                      bonk_hero.get("heroType") not in self._challenges_in_progress)
+                logger.info(f"{self.session_name} | 🌟 Processing constellations for bonk, is available: {is_bonk_available}")
                 if is_bonk_available and all_challenges:
                     sorted_challenges = sorted(all_challenges, key=lambda x: (x["priority"], x["progress_percentage"]))
                     for challenge_data in sorted_challenges:
@@ -1289,13 +1576,13 @@ class BaseBot:
                                 "slotId": 0,
                                 "heroType": bonk_hero.get("heroType")
                             }]
-                            challenge_key = f"{constellation_type}_{challenge_type}"
+                            logger.info(f"{self.session_name} | Try to send {bonk_hero.get('heroType')} to challenge {challenge_type}")
                             result = await self.make_request(
                                 method="POST",
                                 url="https://telegram-api.sleepagotchi.com/v1/tg/sendToChallenge",
                                 params=self._init_data,
                                 json={
-                                    "challengeType": challenge_key,
+                                    "challengeType": challenge_type,
                                     "heroes": formatted_heroes
                                 }
                             )
@@ -1306,6 +1593,207 @@ class BaseBot:
                 await self._process_constellation(constellation)
         except Exception as e:
             logger.error(f"{self.session_name} | Error processing constellations: {str(e)}")
+
+    async def _process_bonk_and_dragon_constellations(self) -> None:
+        """Process constellations specifically for bonk and dragon epic heroes separately"""
+        try:
+            all_challenges = []
+            constellations = await self.get_constellations(start_index=self.session_settings.CONSTELLATION_LAST_INDEX, amount=20)
+            if not constellations or "constellations" not in constellations:
+                return
+            
+            # Collect all suitable challenges
+            for constellation in constellations["constellations"]:
+                for challenge in constellation.get("challenges", []):
+                    resource_type = challenge.get("resourceType", "")
+                    if (resource_type == "greenStones" and not self.session_settings.FARM_GREEN_STONES or
+                        resource_type == "purpleStones" and not self.session_settings.FARM_PURPLE_STONES or
+                        resource_type == "gold" and not self.session_settings.FARM_GOLD or
+                        resource_type == "gacha" and not self.session_settings.FARM_GACHA or
+                        resource_type == "points" and not self.session_settings.FARM_POINTS):
+                        continue
+                    received = challenge.get("received", 0)
+                    value = challenge.get("value", 1)
+                    
+                    # Skip completed challenges
+                    if received >= value:
+                        continue
+                        
+                    progress_percentage = (received / value) if value > 0 else 1
+                    
+                    # Set priorities for both bonk and dragon separately
+                    bonk_priority = 99
+                    dragon_priority = 99
+                    
+                    if resource_type == "greenStones":
+                        bonk_priority = self.session_settings.BONK_PRIORITY_GREEN
+                        dragon_priority = getattr(self.session_settings, 'DRAGON_PRIORITY_GREEN', self.session_settings.BONK_PRIORITY_GREEN)
+                    elif resource_type == "purpleStones":
+                        bonk_priority = self.session_settings.BONK_PRIORITY_PURPLE
+                        dragon_priority = getattr(self.session_settings, 'DRAGON_PRIORITY_PURPLE', self.session_settings.BONK_PRIORITY_PURPLE)
+                    elif resource_type == "gold":
+                        bonk_priority = self.session_settings.BONK_PRIORITY_GOLD
+                        dragon_priority = getattr(self.session_settings, 'DRAGON_PRIORITY_GOLD', self.session_settings.BONK_PRIORITY_GOLD)
+                    elif resource_type == "gacha":
+                        bonk_priority = self.session_settings.BONK_PRIORITY_GACHA
+                        dragon_priority = getattr(self.session_settings, 'DRAGON_PRIORITY_GACHA', self.session_settings.BONK_PRIORITY_GACHA)
+                    elif resource_type == "points":
+                        bonk_priority = self.session_settings.BONK_PRIORITY_POINTS
+                        dragon_priority = getattr(self.session_settings, 'DRAGON_PRIORITY_POINTS', self.session_settings.BONK_PRIORITY_POINTS)
+                    
+                    all_challenges.append({
+                        "constellation": constellation,
+                        "challenge": challenge,
+                        "progress_percentage": progress_percentage,
+                        "bonk_priority": bonk_priority,
+                        "dragon_priority": dragon_priority,
+                        "constellation_index": constellation.get("index", 999)
+                    })
+            
+            user_data = await self.get_user_data()
+            if not user_data:
+                return
+            
+            heroes = user_data.get("player", {}).get("heroes", [])
+            current_time = int(time() * 1000)
+            
+            # Find bonk and dragon heroes
+            bonk_hero = next((hero for hero in heroes if hero.get("heroType") == "bonk"), None)
+            dragon_hero = next((hero for hero in heroes if hero.get("heroType") == "dragonEpic"), None)
+            
+            # Check bonk hero availability
+            bonk_available = False
+            if bonk_hero:
+                bonk_unlock_at = bonk_hero.get("unlockAt", 0)
+                if isinstance(bonk_unlock_at, str):
+                    try:
+                        bonk_unlock_at = int(bonk_unlock_at)
+                    except (ValueError, TypeError):
+                        bonk_unlock_at = 0
+                elif bonk_unlock_at is None:
+                    bonk_unlock_at = 0
+                bonk_available = (bonk_unlock_at <= current_time and 
+                                bonk_hero.get("heroType") not in self._challenges_in_progress)
+            
+            # Check dragon hero availability
+            dragon_available = False
+            if dragon_hero:
+                dragon_unlock_at = dragon_hero.get("unlockAt", 0)
+                if isinstance(dragon_unlock_at, str):
+                    try:
+                        dragon_unlock_at = int(dragon_unlock_at)
+                    except (ValueError, TypeError):
+                        dragon_unlock_at = 0
+                elif dragon_unlock_at is None:
+                    dragon_unlock_at = 0
+                dragon_available = (dragon_unlock_at <= current_time and 
+                                  dragon_hero.get("heroType") not in self._challenges_in_progress)
+            
+            logger.info(f"{self.session_name} | 🌟 Processing constellations for special heroes - Bonk: {bonk_available}, Dragon: {dragon_available}")
+            
+            if not bonk_available and not dragon_available:
+                logger.info(f"{self.session_name} | ❌ No special heroes available for challenges")
+                return
+            
+            if all_challenges:
+                # Process bonk hero challenges if available
+                if bonk_available:
+                    bonk_sorted_challenges = sorted(all_challenges, key=lambda x: (x["constellation_index"], x["bonk_priority"], x["progress_percentage"]))
+                    logger.info(f"{self.session_name} | 🎯 Processing challenges for bonk hero")
+                    
+                    for challenge_data in bonk_sorted_challenges:
+                        constellation = challenge_data["constellation"]
+                        challenge = challenge_data["challenge"]
+                        challenge_type = challenge.get("challengeType")
+                        
+                        if challenge.get("completed", False) or challenge.get("inProgress", False):
+                            continue
+                        
+                        slots = challenge.get("orderedSlots", [])
+                        unlocked_slots = any(slot.get("unlocked", True) and slot.get("occupiedBy", "empty") == "empty" for slot in slots)
+                        if not unlocked_slots:
+                            continue
+                        
+                        min_level = challenge.get("minLevel", 0)
+                        min_stars = challenge.get("minStars", 0)
+                        # required_power = challenge.get("power", 0)
+                        
+                        # Try bonk hero
+                        if (bonk_hero and
+                            bonk_hero.get("level", 0) >= min_level and 
+                            bonk_hero.get("stars", 0) >= min_stars):
+                            
+                            formatted_heroes = [{
+                                "slotId": 0,
+                                "heroType": bonk_hero.get("heroType")
+                            }]
+                            result = await self.make_request(
+                                method="POST",
+                                url="https://telegram-api.sleepagotchi.com/v1/tg/sendToChallenge",
+                                params=self._init_data,
+                                json={
+                                    "challengeType": challenge_type,
+                                    "heroes": formatted_heroes
+                                }
+                            )
+                            if result:
+                                logger.success(f"{self.session_name} | ✅ Successfully sent {bonk_hero.get('heroType')} to challenge {challenge_type} (priority: {challenge_data['bonk_priority']})")
+                                self._challenges_in_progress.add(bonk_hero.get("heroType"))
+                                bonk_available = False
+                                break
+                            else:
+                                logger.error(f"{self.session_name} | ❌ Failed to send {bonk_hero.get('heroType')} to challenge {challenge_type} (priority: {challenge_data['bonk_priority']})")
+
+                # Process dragon hero challenges if available
+                if dragon_available:
+                    dragon_sorted_challenges = sorted(all_challenges, key=lambda x: (x["constellation_index"], x["dragon_priority"], x["progress_percentage"]))
+                    logger.info(f"{self.session_name} | 🐉 Processing challenges for dragon epic hero")
+                    
+                    for challenge_data in dragon_sorted_challenges:
+                        constellation = challenge_data["constellation"]
+                        challenge = challenge_data["challenge"]
+                        challenge_type = challenge.get("challengeType")
+                        
+                        if challenge.get("completed", False) or challenge.get("inProgress", False):
+                            continue
+                        
+                        slots = challenge.get("orderedSlots", [])
+                        unlocked_slots = any(slot.get("unlocked", True) and slot.get("occupiedBy", "empty") == "empty" for slot in slots)
+                        if not unlocked_slots:
+                            continue
+                        
+                        min_level = challenge.get("minLevel", 0)
+                        min_stars = challenge.get("minStars", 0)
+                        # required_power = challenge.get("power", 0)
+                        
+                        # Try dragon hero
+                        if (dragon_hero and
+                            dragon_hero.get("level", 0) >= min_level and 
+                            dragon_hero.get("stars", 0) >= min_stars):
+                            
+                            formatted_heroes = [{
+                                "slotId": 0,
+                                "heroType": dragon_hero.get("heroType")
+                            }]
+                            result = await self.make_request(
+                                method="POST",
+                                url="https://telegram-api.sleepagotchi.com/v1/tg/sendToChallenge",
+                                params=self._init_data,
+                                json={
+                                    "challengeType": challenge_type,
+                                    "heroes": formatted_heroes
+                                }
+                            )
+                            if result:
+                                logger.success(f"{self.session_name} | ✅ Successfully sent {dragon_hero.get('heroType')} to challenge {challenge_type} (priority: {challenge_data['dragon_priority']})")
+                                self._challenges_in_progress.add(dragon_hero.get("heroType"))
+                                dragon_available = False
+                                break
+                            else:
+                                logger.error(f"{self.session_name} | ❌ Failed to send {dragon_hero.get('heroType')} to challenge {challenge_type} (priority: {challenge_data['dragon_priority']})")
+                
+        except Exception as e:
+            logger.error(f"{self.session_name} | Error processing bonk and dragon constellations: {str(e)}")
 
     async def get_missions(self) -> Optional[Dict]:
         try:
