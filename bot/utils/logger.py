@@ -7,11 +7,12 @@ logger.remove()
 
 logger.add(
     sink=sys.stdout,
-    format="<light-white>{time:YYYY-MM-DD HH:mm:ss}</light-white>"
+    format="<cyan>{time:YYYY-MM-DD HH:mm:ss}</cyan>"
            " | <level>{level: <8}</level>"
-           " | <light-white><b>{message}</b></light-white>",
+           " | <cyan><b>{message}</b></cyan>",
     filter=lambda record: record["level"].name != "TRACE",
     colorize=True
+    
 )
 
 if settings.DEBUG_LOGGING:
