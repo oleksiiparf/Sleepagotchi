@@ -21,14 +21,17 @@
 ---
 
 ## 📜 Description
-**SleepagotchiLITE Bot** is an automated bot for the SleepagotchiLITE game. Supports multithreading, proxy integration, and automatic game management.
+**SleepagotchiLITE Bot** is an automated constellation resource farming bot for the SleepagotchiLITE game. Specializes in strategic constellation challenge completion using bonk and dragon epic heroes to maximize resource collection efficiency.
 
 ---
 
 ## 🌟 Key Features
 - 🔄 **Multithreading** — ability to work with multiple accounts in parallel
 - 🔐 **Proxy Support** — secure operation through proxy servers
-- 🎯 **Quest Management** — automatic quest completion
+- � **Smart Constellation Farming** — automated constellation challenge completion with priority-based resource targeting
+- 🎯 **Specialized Hero Management** — dedicated bonk and dragon epic hero strategies with level-up automation
+- 🎮 **Dynamic API Integration** — uses game API to determine optimal constellation starting points
+- ⚙️ **Session-Specific Configuration** — individual settings per account for customized farming strategies
 - 📊 **Statistics** — detailed session statistics tracking
 
 ---
@@ -38,8 +41,8 @@
 ### Quick Start
 1. **Download the project:**
    ```bash
-   git clone https://github.com/Mffff4/SleepagotchiLITE.git
-   cd SleepagotchiLITE
+   git clone https://github.com/oleksiiparf/Sleepagotchi.git sleepagotchi
+   cd sleepagotchi
    ```
 
 2. **Install dependencies:**
@@ -86,14 +89,19 @@
 
 ## ⚙️ Settings
 
+### Global Settings (.env file)
+
 | Parameter                  | Default Value         | Description                                                 |
 |---------------------------|----------------------|-------------------------------------------------------------|
 | **API_ID**                |                      | Telegram API application ID                                 |
 | **API_HASH**              |                      | Telegram API application hash                               |
-| **GLOBAL_CONFIG_PATH**    |                      | Path for configuration files. By default, uses the TG_FARM environment variable |
+| **GLOBAL_CONFIG_PATH**    | TG_FARM              | Path for configuration files. By default, uses the TG_FARM environment variable |
 | **FIX_CERT**              | False                | Fix SSL certificate errors                                  |
 | **SESSION_START_DELAY**   | 360                  | Delay before starting the session (seconds)               |
-| **REF_ID**                |                      | Referral ID for new accounts                                |
+| **ACTION_DELAY**          | (2, 5)               | Delay between actions (min, max seconds)                   |
+| **REQUEST_RETRIES**       | 3                    | Number of request retries on failure                        |
+| **SLEEP_TIME**            | (600, 3600)          | Sleep time between cycles (min, max seconds)               |
+| **REF_ID**                |                      | Referral ID for new accounts                               |
 | **USE_PROXY**             | True                 | Use proxy                                                  |
 | **SESSIONS_PER_PROXY**    | 1                    | Number of sessions per proxy                                |
 | **DISABLE_PROXY_REPLACE** | False                | Disable proxy replacement on errors                         |
@@ -101,14 +109,67 @@
 | **DEBUG_LOGGING**         | False                | Enable detailed logging                                     |
 | **DEVICE_PARAMS**         | False                | Use custom device parameters                                 |
 | **AUTO_UPDATE**           | True                 | Automatic updates                                           |
-| **CHECK_UPDATE_INTERVAL** | 300                  | Update check interval (seconds)                            |
-| **BUY_GACHA_PACKS**       | True                 | Buy gacha packs                                             |
-| **GEMS_SAFE_BALANCE**     | 1000                 | Safe balance of gems that cannot be spent                  |
-| **FARM_GREEN_STONES** | True | Farm green stones |
-| **FARM_PURPLE_STONES** | True | Farm purple stones |
-| **FARM_GOLD** | True | Farm gold |
-| **FARM_GACHA** | True | Farm gacha |
-| **FARM_POINTS** | True | Farm points |
+| **CHECK_UPDATE_INTERVAL** | 60                   | Update check interval (seconds)                            |
+
+### Session-Specific Settings
+
+Each session can have its own configuration file located in `sessions/{session_name}.env`. These settings override global defaults for individual sessions and allow fine-tuning constellation farming strategies. These settings are created automatically once the session is added.
+
+#### Resource Farming Settings
+| Parameter                  | Default Value | Description                                                 |
+|---------------------------|---------------|-------------------------------------------------------------|
+| **BUY_GACHA_PACKS**       | False         | Buy gacha packs with gems                                   |
+| **SPEND_GACHAS**          | False         | Automatically spend gacha tokens                            |
+| **GEMS_SAFE_BALANCE**     | 100000        | Safe balance of gems that cannot be spent                  |
+| **PROCESS_MISSIONS**      | False         | Automatically process and claim missions                     |
+| **FARM_GREEN_STONES**     | True          | Farm green stones through constellation challenges          |
+| **FARM_PURPLE_STONES**    | True          | Farm purple stones through constellation challenges         |
+| **FARM_GOLD**             | True          | Farm gold through constellation challenges                   |
+| **FARM_GACHA**            | True          | Farm gacha tokens through constellation challenges          |
+| **FARM_POINTS**           | True          | Farm points through constellation challenges                 |
+
+#### Constellation Settings
+| Parameter                  | Default Value | Description                                                 |
+|---------------------------|---------------|-------------------------------------------------------------|
+| **CONSTELLATION_LAST_INDEX** | None       | Constellation start index (empty = use API value, number = manual override) |
+
+#### Bonk Hero Priority Settings (1 = highest, 5 = lowest)
+| Parameter                  | Default Value | Description                                                 |
+|---------------------------|---------------|-------------------------------------------------------------|
+| **BONK_PRIORITY_GREEN**   | 3             | Priority for green stones challenges                        |
+| **BONK_PRIORITY_PURPLE**  | 4             | Priority for purple stones challenges                       |
+| **BONK_PRIORITY_GOLD**    | 1             | Priority for gold challenges                                |
+| **BONK_PRIORITY_GACHA**   | 2             | Priority for gacha challenges                               |
+| **BONK_PRIORITY_POINTS**  | 5             | Priority for points challenges                              |
+
+#### Dragon Epic Hero Priority Settings (1 = highest, 5 = lowest)
+| Parameter                  | Default Value | Description                                                 |
+|---------------------------|---------------|-------------------------------------------------------------|
+| **DRAGON_PRIORITY_GREEN** | 2             | Priority for green stones challenges                        |
+| **DRAGON_PRIORITY_PURPLE**| 1             | Priority for purple stones challenges                       |
+| **DRAGON_PRIORITY_GOLD**  | 3             | Priority for gold challenges                                |
+| **DRAGON_PRIORITY_GACHA** | 4             | Priority for gacha challenges                               |
+| **DRAGON_PRIORITY_POINTS**| 5             | Priority for points challenges                              |
+
+### Session Environment Management
+
+The bot includes a session environment manager (`session_env_manager.py`) that allows you to:
+
+- **Create** individual session configurations
+- **Edit** session-specific settings with an interactive menu
+- **View** current session configurations
+- **Manage** constellation farming priorities for each hero type
+
+**Usage:**
+```bash
+python session_env_manager.py
+```
+
+This tool provides an interactive interface to configure:
+- Resource farming preferences per session
+- Individual hero priorities for bonk and dragon epic cards
+- Constellation index settings (manual override or API-based)
+- Economic settings like gem spending and gacha purchasing
 
 
 

@@ -24,8 +24,8 @@ def signal_handler(signum: int, frame) -> None:
     shutdown_event.set()
 
 START_TEXT = f"""
-{Fore.CYAN}🎮 Sleepagotchi Farm Automation Bot{Style.RESET_ALL}
-{Fore.GREEN}Automated farming for Sleepagotchi LITE game{Style.RESET_ALL}
+{Fore.CYAN}🎮 Sleepagotchi LITE Bot{Style.RESET_ALL}
+{Fore.GREEN}Automated constellation resource farming using bonk and dragon cards{Style.RESET_ALL}
 
 {Fore.CYAN}Select action:{Style.RESET_ALL}
 
