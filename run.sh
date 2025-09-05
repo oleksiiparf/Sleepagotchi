@@ -1,4 +1,4 @@
-#!/bin/bash-low-unrelated-histories
+#!/bin/bash
 
 firstRun=true
 
@@ -42,6 +42,15 @@ do
         firstRun=false
     else
         python3 main.py -a 1
+    fi
+    
+    exit_code=$?
+    
+    # If the exit code indicates a specific error (like no sessions), don't restart
+    if [ $exit_code -eq 1 ]; then
+        echo "Program exited with error code 1 (likely no sessions found). Stopping auto-restart."
+        echo "Please add sessions or run manually to continue."
+        break
     fi
 
     echo "Restarting the program in 10 seconds..."
