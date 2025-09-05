@@ -1,6 +1,46 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from enum import Enum
+import os
+
+class SessionSettings(BaseSettings):
+    """Session-specific settings loaded from individual .env files"""
+    model_config = SettingsConfigDict(env_ignore_empty=True)
+    
+    BUY_GACHA_PACKS: bool = False
+    SPEND_GACHAS: bool = False
+    GEMS_SAFE_BALANCE: int = 100000
+    PROCESS_MISSIONS: bool = False
+
+    # Resource farming settings
+    FARM_GREEN_STONES: bool = True
+    FARM_PURPLE_STONES: bool = True
+    FARM_GOLD: bool = True
+    FARM_GACHA: bool = True
+    FARM_POINTS: bool = True
+    
+    # Hero upgrade settings
+    LEVEL_UP_RARE: bool = True
+    LEVEL_UP_EPIC: bool = False
+    LEVEL_UP_LEGENDARY: bool = False
+    LEVEL_UP_SPECIAL: bool = True
+    
+    # Constellation settings
+    CONSTELLATION_LAST_INDEX: int = 0
+
+    # Priority for bonk hero (1 = highest, 5 = lowest)
+    BONK_PRIORITY_GREEN: int = 3
+    BONK_PRIORITY_PURPLE: int = 4
+    BONK_PRIORITY_GOLD: int = 1
+    BONK_PRIORITY_GACHA: int = 2
+    BONK_PRIORITY_POINTS: int = 5
+
+    # Priority for dragon epic hero (1 = highest, 5 = lowest)
+    DRAGON_PRIORITY_GREEN: int = 2
+    DRAGON_PRIORITY_PURPLE: int = 1
+    DRAGON_PRIORITY_GOLD: int = 3
+    DRAGON_PRIORITY_GACHA: int = 4
+    DRAGON_PRIORITY_POINTS: int = 5
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True)
@@ -29,25 +69,20 @@ class Settings(BaseSettings):
     CHECK_UPDATE_INTERVAL: int = 60
     BLACKLISTED_SESSIONS: str = ""
 
-    BUY_GACHA_PACKS: bool = True
-    GEMS_SAFE_BALANCE: int = 1000
-    
-    # Resource farming settings
-    FARM_GREEN_STONES: bool = True
-    FARM_PURPLE_STONES: bool = True
-    FARM_GOLD: bool = True
-    FARM_GACHA: bool = True
-    FARM_POINTS: bool = True
-    
-    # Priority for bonk hero (1 = highest, 5 = lowest)
-    BONK_PRIORITY_GREEN: int = 3
-    BONK_PRIORITY_PURPLE: int = 4
-    BONK_PRIORITY_GOLD: int = 1
-    BONK_PRIORITY_GACHA: int = 2
-    BONK_PRIORITY_POINTS: int = 5
-
     @property
     def blacklisted_sessions(self) -> List[str]:
         return [s.strip() for s in self.BLACKLISTED_SESSIONS.split(',') if s.strip()]
+    
+    def get_session_settings(self, session_name: str, sessions_path: str) -> "SessionSettings":
+        """Get session-specific settings from session's .env file"""
+        session_env_file = os.path.join(sessions_path, f"{session_name}.env")
+        
+        if os.path.exists(session_env_file):
+            # Create a new SessionSettings instance with the session-specific env file
+            session_settings = SessionSettings(_env_file=session_env_file)
+            return session_settings
+        else:
+            # Return default settings if no session-specific .env file exists
+            return SessionSettings()
 
 settings = Settings()
