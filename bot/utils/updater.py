@@ -12,7 +12,7 @@ class UpdateManager:
         self.check_interval = settings.CHECK_UPDATE_INTERVAL
         self.is_update_restart = "--update-restart" in sys.argv
         self._configure_git_safe_directory()
-        self._check_and_switch_repository()
+        # self._check_and_switch_repository()
 
     def _configure_git_safe_directory(self) -> None:
         try:
