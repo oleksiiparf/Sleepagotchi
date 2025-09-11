@@ -1117,10 +1117,11 @@ class BaseBot:
                 start_index = self.session_settings.CONSTELLATION_LAST_INDEX
                 logger.info(f"{self.session_name} | 🌟 Using manual constellation index: {start_index}")
             else:
-                # Get from API meta
+                # Get from API meta and subtract 1 to avoid skipping potential challenges
                 meta = user_data.get("player", {}).get("meta", {})
-                start_index = meta.get("constellationsLastIndex", 0)
-                logger.info(f"{self.session_name} | 🌟 Using API constellation index: {start_index}")
+                api_index = meta.get("constellationsLastIndex", 0)
+                start_index = max(0, api_index - 1)  # Ensure we don't go below 0
+                logger.info(f"{self.session_name} | 🌟 Using API constellation index: {api_index} → adjusted to: {start_index}")
             
             constellations = await self.get_constellations(start_index=start_index, amount=20)
             if not constellations or "constellations" not in constellations:
