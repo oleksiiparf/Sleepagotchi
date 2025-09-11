@@ -122,6 +122,7 @@ Each session can have its own configuration file located in `sessions/{session_n
 | **SPEND_GACHAS**          | False         | Automatically spend gacha tokens                            |
 | **GEMS_SAFE_BALANCE**     | 100000        | Safe balance of gems that cannot be spent                  |
 | **PROCESS_MISSIONS**      | False         | Automatically process and claim missions                     |
+| **UPGRADE_CARDS**         | True          | Automatically upgrade bonk and dragon epic heroes           |
 | **FARM_GREEN_STONES**     | True          | Farm green stones through constellation challenges          |
 | **FARM_PURPLE_STONES**    | True          | Farm purple stones through constellation challenges         |
 | **FARM_GOLD**             | True          | Farm gold through constellation challenges                   |

@@ -794,11 +794,11 @@ class BaseBot:
             await delay()
             await self._buy_gacha_packs_with_gems()
 
-        await delay()
-        await self._level_up_dragon()
-        
-        await delay()
-        await self._level_up_bonk()
+        if self.session_settings.UPGRADE_CARDS:
+            await delay()
+            await self._level_up_dragon()
+            await delay()
+            await self._level_up_bonk()
         
         await delay()
         user_data = await self.get_user_data()

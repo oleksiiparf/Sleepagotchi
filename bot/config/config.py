@@ -11,6 +11,7 @@ class SessionSettings(BaseSettings):
     SPEND_GACHAS: bool = False
     GEMS_SAFE_BALANCE: int = 100000
     PROCESS_MISSIONS: bool = False
+    UPGRADE_CARDS: bool = True
 
     # Resource farming settings
     FARM_GREEN_STONES: bool = True

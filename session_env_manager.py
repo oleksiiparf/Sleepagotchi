@@ -50,6 +50,7 @@ BUY_GACHA_PACKS=False
 SPEND_GACHAS=False
 GEMS_SAFE_BALANCE=100000
 PROCESS_MISSIONS=False
+UPGRADE_CARDS=True
 
 # Resource farming settings
 FARM_GREEN_STONES=True
@@ -200,13 +201,14 @@ def show_session_config(session_name: str) -> None:
         ('BUY_GACHA_PACKS', 'Buy Gacha Packs'),
         ('SPEND_GACHAS', 'Spend Gachas'),
         ('PROCESS_MISSIONS', 'Process Missions'),
+        ('UPGRADE_CARDS', 'Upgrade Cards'),
         ('GEMS_SAFE_BALANCE', 'Gems Safe Balance'),
         ('CONSTELLATION_LAST_INDEX', 'Constellation Last Index')
     ]
     
     for key, label in other_settings:
         value = config.get(key, 'Not set')
-        if key in ['BUY_GACHA_PACKS', 'SPEND_GACHAS', 'PROCESS_MISSIONS']:
+        if key in ['BUY_GACHA_PACKS', 'SPEND_GACHAS', 'PROCESS_MISSIONS', 'UPGRADE_CARDS']:
             emoji = "✅" if value == "True" else "❌" if value == "False" else "❓"
             print(f"  {emoji} {label}: {value}")
         else:
@@ -330,7 +332,8 @@ def interactive_config() -> None:
             other_boolean_settings = [
                 ('BUY_GACHA_PACKS', 'Buy Gacha Packs (True/False)'),
                 ('SPEND_GACHAS', 'Spend Gachas (True/False)'),
-                ('PROCESS_MISSIONS', 'Process Missions (True/False)')
+                ('PROCESS_MISSIONS', 'Process Missions (True/False)'),
+                ('UPGRADE_CARDS', 'Upgrade Cards (True/False)')
             ]
             
             for key, label in other_boolean_settings:
