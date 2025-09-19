@@ -1231,7 +1231,7 @@ class BaseBot:
                     for constellation in constellations["constellations"]:
                         constellation_index = constellation.get("index", 0)
                         # Only check the latest constellation and maybe one before it
-                        if constellation_index >= max(0, latest_constellation_index - 1):
+                        if constellation_index >= latest_constellation_index:
                             for challenge in constellation.get("challenges", []):
                                 resource_type = challenge.get("resourceType", "")
                                 if resource_type == "gold":
