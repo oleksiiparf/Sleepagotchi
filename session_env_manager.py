@@ -59,6 +59,15 @@ FARM_GOLD=True
 FARM_GACHA=True
 FARM_POINTS=True
 
+# Farming mode settings
+FARM_SOLO=True
+FARM_CLAN=False
+
+# Clan farming settings
+CLAN_FARM_POINTS=False
+CLAN_FARM_ORBS=True
+CLAN_FARM_GOLD=True
+
 # Constellation settings (empty = use API value, number = manual override)
 CONSTELLATION_LAST_INDEX=
 
@@ -75,6 +84,11 @@ DRAGON_PRIORITY_PURPLE=1
 DRAGON_PRIORITY_GOLD=3
 DRAGON_PRIORITY_GACHA=4
 DRAGON_PRIORITY_POINTS=5
+
+# Clan priority settings (1 = highest, 5 = lowest)
+CLAN_PRIORITY_POINTS=3
+CLAN_PRIORITY_ORBS=1
+CLAN_PRIORITY_GOLD=2
 """
         
         with open(session_env_file, 'w') as f:

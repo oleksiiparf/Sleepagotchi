@@ -20,8 +20,18 @@ class SessionSettings(BaseSettings):
     FARM_GACHA: bool = True
     FARM_POINTS: bool = True
     
+    # Farming mode settings
+    FARM_SOLO: bool = True
+    FARM_CLAN: bool = False
+    
+    # Clan farming settings
+    CLAN_FARM_POINTS: bool = False
+    CLAN_FARM_ORBS: bool = True
+    CLAN_FARM_GOLD: bool = True
+    
     # Constellation settings (None = use API value, int = manual override)
     CONSTELLATION_LAST_INDEX: Optional[int] = None
+    CLAN_CONSTELLATION_LAST_INDEX: Optional[int] = None
 
     # Priority for bonk hero (1 = highest, 5 = lowest)
     BONK_PRIORITY_GREEN: int = 3
@@ -36,6 +46,11 @@ class SessionSettings(BaseSettings):
     DRAGON_PRIORITY_GOLD: int = 3
     DRAGON_PRIORITY_GACHA: int = 4
     DRAGON_PRIORITY_POINTS: int = 5
+    
+    # Clan priority settings (1 = highest, 5 = lowest)
+    CLAN_PRIORITY_POINTS: int = 3
+    CLAN_PRIORITY_ORBS: int = 1
+    CLAN_PRIORITY_GOLD: int = 2
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True)

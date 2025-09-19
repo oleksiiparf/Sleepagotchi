@@ -804,7 +804,16 @@ class BaseBot:
         user_data = await self.get_user_data()
         if not user_data:
             return
-        await self._process_bonk_and_dragon_constellations(user_data)
+        if self.session_settings.FARM_SOLO:
+            await self._process_bonk_and_dragon_constellations(user_data)
+
+        await delay()
+        # Process clan constellations if enabled
+        user_data = await self.get_user_data()
+        if not user_data:
+            return
+        if self.session_settings.FARM_CLAN:
+            await self._process_clan_constellations(user_data)
 
         # Refresh user data after constellation processing
         user_data = await self.get_user_data()
@@ -895,7 +904,7 @@ class BaseBot:
             logger.error(f"{self.session_name} | Error consuming gacha: {str(e)}")
             return None
 
-    async def get_constellations(self, start_index: int = 0, amount: int = 10) -> Optional[Dict]:
+    async def get_constellations(self, start_index: int = 0, amount: int = 2) -> Optional[Dict]:
         try:
             response = await self.make_request(
                 method="POST",
@@ -906,6 +915,32 @@ class BaseBot:
             return response
         except Exception as e:
             logger.error(f"{self.session_name} | Error getting constellations: {str(e)}")
+            return None
+
+    async def get_clan_constellations(self, start_index: int = 0, amount: int = 2) -> Optional[Dict]:
+        try:
+            response = await self.make_request(
+                method="POST",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/getClanConstellations",
+                params=self._init_data,
+                json={"startIndex": start_index, "amount": amount}
+            )
+            return response
+        except Exception as e:
+            logger.error(f"{self.session_name} | Error getting clan constellations: {str(e)}")
+            return None
+
+    async def get_clan(self, clan_id: str) -> Optional[Dict]:
+        try:
+            response = await self.make_request(
+                method="POST",
+                url=f"https://telegram-api.sleepagotchi.com/v1/tg/getClan",
+                params=self._init_data,
+                json={"clanId": clan_id}
+            )
+            return response
+        except Exception as e:
+            logger.error(f"{self.session_name} | Error getting clan info: {str(e)}")
             return None
 
     def _format_heroes_for_challenge(self, heroes: list) -> list:
@@ -1319,6 +1354,266 @@ class BaseBot:
                 
         except Exception as e:
             logger.error(f"{self.session_name} | Error processing bonk and dragon constellations: {str(e)}")
+
+    async def _process_clan_constellations(self, user_data: dict) -> None:
+        """Process clan constellations based on clan settings"""
+        try:
+            # Check if clan farming is enabled
+            if not self.session_settings.FARM_CLAN:
+                logger.info(f"{self.session_name} | 🏛️ Clan farming is disabled")
+                return
+            
+            # Get clan ID from user data
+            clan_info = user_data.get("player", {}).get("clanInfo")
+            if not clan_info:
+                logger.info(f"{self.session_name} | ❌ No clan info found - user not in a clan")
+                return
+            
+            clan_id = clan_info.get("clanId")
+            if not clan_id:
+                logger.error(f"{self.session_name} | ❌ Clan ID not found in clan info")
+                return
+            
+            logger.info(f"{self.session_name} | 🏛️ Processing clan constellations for clan ID: {clan_id}")
+            
+            # Fetch clan info to get constellationsLastIndex and active challenges
+            clan_data = await self.get_clan(clan_id)
+            if not clan_data:
+                logger.error(f"{self.session_name} | ❌ Failed to fetch clan data")
+                return
+            
+            # Check for active challenges first
+            active_challenges = clan_data.get("activeChallenges", [])
+            if active_challenges:
+                logger.info(f"{self.session_name} | 🏛️ Found {len(active_challenges)} active clan challenges")
+            
+            # Determine clan constellation start index
+            # Use manual setting if provided (not None), otherwise use API value
+            if self.session_settings.CLAN_CONSTELLATION_LAST_INDEX is not None:
+                clan_start_index = self.session_settings.CLAN_CONSTELLATION_LAST_INDEX
+                logger.info(f"{self.session_name} | 🏛️ Using manual clan constellation index: {clan_start_index}")
+            else:
+                # Get from API meta and subtract 1 to avoid skipping potential challenges
+                clan_api_index = clan_data.get("constellationsLastIndex", 0)
+                clan_start_index = max(0, clan_api_index - 1)  # Ensure we don't go below 0
+                logger.info(f"{self.session_name} | 🏛️ Using API clan constellation index: {clan_api_index} → adjusted to: {clan_start_index}")
+            
+            # Fetch clan constellations starting from the determined index
+            clan_constellations = await self.get_clan_constellations(start_index=clan_start_index, amount=2)
+            if not clan_constellations or "constellations" not in clan_constellations:
+                logger.info(f"{self.session_name} | ❌ No clan constellations found or invalid response")
+                return
+            
+            logger.info(f"{self.session_name} | 🏛️ Successfully fetched clan constellations - found {len(clan_constellations['constellations'])} constellations")
+            
+            # Collect all suitable clan challenges
+            all_clan_challenges = []
+            for constellation in clan_constellations["constellations"]:
+                for challenge_idx, challenge in enumerate(constellation.get("challenges", [])):
+                    resource_type = challenge.get("resourceType", "")
+                    
+                    # Filter challenges based on CLAN_FARM_* settings
+                    if (resource_type == "gold" and not self.session_settings.CLAN_FARM_GOLD or
+                        resource_type == "points" and not self.session_settings.CLAN_FARM_POINTS or
+                        resource_type == "orb" and not self.session_settings.CLAN_FARM_ORBS):
+                        continue
+                    
+                    received = challenge.get("received", 0)
+                    value = challenge.get("value", 1)
+                    
+                    # Skip completed challenges
+                    if received >= value:
+                        continue
+                    
+                    # Skip orb challenges that are more than 50% completed
+                    progress_percentage = (received / value) if value > 0 else 1
+                    if resource_type == "orb" and progress_percentage > 0.5:
+                        continue
+                        
+                    # For clan challenges, check if we can still add cards (before start time)
+                    current_time = int(time() * 1000)
+                    start_at = challenge.get("startAt", 0)
+                    if start_at > 0 and current_time >= start_at:
+                        # Challenge has already started, can't add new cards
+                        continue
+                    
+                    # Skip challenges where the current user already has a card placed
+                    user_id = user_data.get("userId", "")
+                    if user_id:
+                        user_already_participating = False
+                        slots = challenge.get("orderedSlots", [])
+                        for slot in slots:
+                            occupied_by_player = slot.get("occupiedByPlayer", "")
+                            if occupied_by_player == user_id:
+                                user_already_participating = True
+                                break
+                        
+                        if user_already_participating:
+                            continue
+                    
+                    # Set priority based on resource type
+                    priority = 99  # Default low priority
+                    if resource_type == "gold":
+                        priority = self.session_settings.CLAN_PRIORITY_GOLD
+                    elif resource_type == "points":
+                        priority = self.session_settings.CLAN_PRIORITY_POINTS
+                    elif resource_type == "orb":
+                        priority = self.session_settings.CLAN_PRIORITY_ORBS
+                    
+                    all_clan_challenges.append({
+                        "constellation": constellation,
+                        "challenge": challenge,
+                        "progress_percentage": progress_percentage,
+                        "priority": priority,
+                        "constellation_index": constellation.get("index", 999),
+                        "challenge_index": challenge_idx
+                    })
+            
+            if not all_clan_challenges:
+                logger.info(f"{self.session_name} | 🏛️ No suitable clan challenges found")
+                return
+            
+            # Sort challenges by constellation index, priority, and challenge index within constellation
+            sorted_clan_challenges = sorted(all_clan_challenges, key=lambda x: (x["constellation_index"], x["priority"], x["challenge_index"]))
+            
+            logger.info(f"{self.session_name} | 🏛️ Found {len(sorted_clan_challenges)} suitable clan challenges")
+            
+            # Log suitable clan challenges after filtering and sorting
+            for i, challenge_data in enumerate(sorted_clan_challenges):
+                constellation = challenge_data["constellation"]
+                challenge = challenge_data["challenge"]
+                constellation_name = constellation.get("name", "Unknown")
+                constellation_index = constellation.get("index", "Unknown")
+                challenge_name = challenge.get("name", "Unknown")
+                resource_type = challenge.get("resourceType", "Unknown")
+                received = challenge.get("received", 0)
+                value = challenge.get("value", 1)
+                progress = f"{received}/{value}" if value > 0 else "0/0"
+                priority = challenge_data["priority"]
+                challenge_index = challenge_data["challenge_index"]
+                logger.info(f"{self.session_name} | 🏛️ Suitable {i+1}: {constellation_name} → Challenge[{challenge_index}] {challenge_name} ({resource_type}) - Priority: {priority}, Progress: {progress}")
+            
+            # Process the highest priority clan challenge
+            for challenge_data in sorted_clan_challenges:
+                constellation = challenge_data["constellation"]
+                challenge = challenge_data["challenge"]
+                challenge_type = challenge.get("challengeType")
+                resource_type = challenge.get("resourceType", "")
+                challenge_name = challenge.get("name", "Unknown")
+                
+                logger.info(f"{self.session_name} | 🏛️ Processing clan challenge: {challenge_name} ({resource_type}) - Priority: {challenge_data['priority']}")
+                
+                # Check if challenge has available slots
+                slots = challenge.get("orderedSlots", [])
+                available_slots = []
+                
+                for slot_idx, slot in enumerate(slots):
+                    if (slot.get("unlocked", False) and 
+                        slot.get("occupiedBy", "empty") == "empty" and
+                        not slot.get("optional", False)):  # Only use required slots, not optional ones
+                        available_slots.append((slot_idx, slot))
+                
+                if not available_slots:
+                    logger.info(f"{self.session_name} | 🏛️ No available slots for clan challenge {challenge_name}")
+                    continue
+                
+                # Get min requirements for the challenge
+                min_level = challenge.get("minLevel", 0)
+                min_stars = challenge.get("minStars", 0)
+                
+                # Get user heroes from user_data
+                heroes = user_data.get("player", {}).get("heroes", [])
+                current_time = int(time() * 1000)
+                
+                # Find suitable heroes that meet the requirements and are not busy
+                suitable_heroes = []
+                for hero in heroes:
+                    # Check if hero is available (not in challenge)
+                    hero_unlock_at = hero.get("unlockAt", 0)
+                    if isinstance(hero_unlock_at, str):
+                        try:
+                            hero_unlock_at = int(hero_unlock_at)
+                        except (ValueError, TypeError):
+                            hero_unlock_at = 0
+                    elif hero_unlock_at is None:
+                        hero_unlock_at = 0
+                    
+                    # Skip if hero is currently in a challenge
+                    if hero_unlock_at > current_time:
+                        continue
+                    
+                    # Skip if hero is already marked as in progress
+                    if hero.get("heroType") in self._challenges_in_progress:
+                        continue
+                    
+                    # Check if hero meets level and stars requirements
+                    hero_level = hero.get("level", 0)
+                    hero_stars = hero.get("stars", 0)
+                    
+                    if hero_level >= min_level and hero_stars >= min_stars:
+                        suitable_heroes.append(hero)
+                
+                if not suitable_heroes:
+                    logger.info(f"{self.session_name} | 🏛️ No suitable heroes found for clan challenge {challenge_name} (need: Lv.{min_level}, ⭐{min_stars})")
+                    continue
+                
+                # Try to assign a hero to an available slot
+                hero_assigned = False
+                for hero in suitable_heroes:
+                    hero_class = hero.get("class", "")
+                    hero_type = hero.get("heroType", "")
+                    hero_name = hero.get("name", "Unknown")
+                    
+                    # Find a slot that matches the hero's class
+                    for slot_idx, slot in available_slots:
+                        required_class = slot.get("heroClass", "")
+                        
+                        # Check if hero class matches the required slot class
+                        if hero_class == required_class or hero_class == "universal":
+                            # Found a matching slot, send hero to challenge
+                            formatted_heroes = [{
+                                "slotId": slot_idx,
+                                "heroType": hero_type
+                            }]
+                            
+                            try:
+                                result = await self.make_request(
+                                    method="POST",
+                                    url="https://telegram-api.sleepagotchi.com/v1/tg/sendToClanChallenge",
+                                    params=self._init_data,
+                                    json={
+                                        "challengeType": challenge_type,
+                                        "heroes": formatted_heroes
+                                    }
+                                )
+                                
+                                if result:
+                                    logger.success(f"{self.session_name} | 🏛️ ✅ Successfully sent {hero_name} ({hero_class}) to clan challenge {challenge_name} (slot {slot_idx})")
+                                    self._challenges_in_progress.add(hero_type)
+                                    hero_assigned = True
+                                    break
+                                else:
+                                    logger.error(f"{self.session_name} | 🏛️ ❌ Failed to send {hero_name} to clan challenge {challenge_name}")
+                                    
+                            except Exception as e:
+                                logger.error(f"{self.session_name} | 🏛️ Error sending {hero_name} to clan challenge: {str(e)}")
+                                continue
+                    
+                    if hero_assigned:
+                        break
+                
+                if not hero_assigned:
+                    logger.info(f"{self.session_name} | 🏛️ No matching hero-slot combination found for clan challenge {challenge_name}")
+                    # Log available slots and suitable heroes for debugging
+                    slot_classes = [slot[1].get("heroClass", "unknown") for slot in available_slots[:3]]
+                    hero_classes = [f"{hero.get('name', 'Unknown')}({hero.get('class', 'unknown')})" for hero in suitable_heroes[:3]]
+                    logger.info(f"{self.session_name} | 🏛️ Available slots need: {', '.join(slot_classes)} | Suitable heroes: {', '.join(hero_classes)}")
+                # Note: Continue to next challenge (removed break to allow multiple hero assignments)
+            
+            logger.info(f"{self.session_name} | 🏛️ Clan constellation processing completed")
+            
+        except Exception as e:
+            logger.error(f"{self.session_name} | Error processing clan constellations: {str(e)}")
 
     async def get_missions(self) -> Optional[Dict]:
         try:
