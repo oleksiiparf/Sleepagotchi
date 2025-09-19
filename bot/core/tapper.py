@@ -1210,6 +1210,55 @@ class BaseBot:
                         "constellation_index": constellation.get("index", 999)
                     })
             
+            # Fallback logic: If no suitable challenges found and gold farming is disabled,
+            # temporarily enable gold farming from the latest constellation to unlock new challenges
+            if not all_challenges and not self.session_settings.FARM_GOLD:
+                # Check if any non-gold farming is enabled
+                other_farming_enabled = (self.session_settings.FARM_GREEN_STONES or 
+                                       self.session_settings.FARM_PURPLE_STONES or 
+                                       self.session_settings.FARM_GACHA or 
+                                       self.session_settings.FARM_POINTS)
+                
+                if other_farming_enabled:
+                    logger.info(f"{self.session_name} | 🌟 No suitable challenges found with current settings, checking for gold fallback...")
+                    
+                    # Get the latest constellation index to find incomplete gold challenges
+                    meta = user_data.get("player", {}).get("meta", {})
+                    latest_constellation_index = meta.get("constellationsLastIndex", 0)
+                    
+                    # Look for incomplete gold challenges in the latest constellation(s)
+                    gold_fallback_challenges = []
+                    for constellation in constellations["constellations"]:
+                        constellation_index = constellation.get("index", 0)
+                        # Only check the latest constellation and maybe one before it
+                        if constellation_index >= max(0, latest_constellation_index - 1):
+                            for challenge in constellation.get("challenges", []):
+                                resource_type = challenge.get("resourceType", "")
+                                if resource_type == "gold":
+                                    received = challenge.get("received", 0)
+                                    value = challenge.get("value", 1)
+                                    
+                                    # Only add incomplete gold challenges
+                                    if received < value:
+                                        progress_percentage = (received / value) if value > 0 else 1
+                                        
+                                        gold_fallback_challenges.append({
+                                            "constellation": constellation,
+                                            "challenge": challenge,
+                                            "progress_percentage": progress_percentage,
+                                            "bonk_priority": self.session_settings.BONK_PRIORITY_GOLD,
+                                            "dragon_priority": getattr(self.session_settings, 'DRAGON_PRIORITY_GOLD', self.session_settings.BONK_PRIORITY_GOLD),
+                                            "constellation_index": constellation_index,
+                                            "is_fallback": True  # Mark as fallback challenge
+                                        })
+                    
+                    if gold_fallback_challenges:
+                        logger.info(f"{self.session_name} | 🌟 Found {len(gold_fallback_challenges)} gold fallback challenges to unlock new constellations")
+                        # Add fallback challenges to the main list
+                        all_challenges.extend(gold_fallback_challenges)
+                    else:
+                        logger.info(f"{self.session_name} | 🌟 No incomplete gold challenges found for fallback")
+            
             user_data = await self.get_user_data()
             if not user_data:
                 return
@@ -1297,7 +1346,9 @@ class BaseBot:
                                 }
                             )
                             if result:
-                                logger.success(f"{self.session_name} | ✅ Successfully sent {bonk_hero.get('heroType')} to challenge {challenge_type} (priority: {challenge_data['bonk_priority']})")
+                                is_fallback = challenge_data.get("is_fallback", False)
+                                fallback_msg = " (FALLBACK to unlock new challenges)" if is_fallback else ""
+                                logger.success(f"{self.session_name} | ✅ Successfully sent {bonk_hero.get('heroType')} to challenge {challenge_type} (priority: {challenge_data['bonk_priority']}){fallback_msg}")
                                 self._challenges_in_progress.add(bonk_hero.get("heroType"))
                                 bonk_available = False
                                 break
@@ -1345,7 +1396,9 @@ class BaseBot:
                                 }
                             )
                             if result:
-                                logger.success(f"{self.session_name} | ✅ Successfully sent {dragon_hero.get('heroType')} to challenge {challenge_type} (priority: {challenge_data['dragon_priority']})")
+                                is_fallback = challenge_data.get("is_fallback", False)
+                                fallback_msg = " (FALLBACK to unlock new challenges)" if is_fallback else ""
+                                logger.success(f"{self.session_name} | ✅ Successfully sent {dragon_hero.get('heroType')} to challenge {challenge_type} (priority: {challenge_data['dragon_priority']}){fallback_msg}")
                                 self._challenges_in_progress.add(dragon_hero.get("heroType"))
                                 dragon_available = False
                                 break
